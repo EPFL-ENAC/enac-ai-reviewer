@@ -40,3 +40,38 @@ export async function updateIssueComment(
     body: target.body,
   });
 }
+
+export async function listReviewComments(
+  octokit: InstallationOctokit,
+  target: { owner: string; repo: string; pullNumber: number },
+): Promise<{ path: string; line?: number; side?: string }[]> {
+  const { data } = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/comments', {
+    owner: target.owner,
+    repo: target.repo,
+    pull_number: target.pullNumber,
+    per_page: 100,
+  });
+  return data;
+}
+
+export interface PullRequestReviewComment {
+  path: string;
+  line: number;
+  side: 'LEFT' | 'RIGHT';
+  body: string;
+}
+
+/** Posts exactly one PR review with event COMMENT. Never APPROVE or REQUEST_CHANGES in v1 (PRD §12). */
+export async function createPullRequestReview(
+  octokit: InstallationOctokit,
+  target: { owner: string; repo: string; pullNumber: number; body: string; comments: PullRequestReviewComment[] },
+): Promise<void> {
+  await octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
+    owner: target.owner,
+    repo: target.repo,
+    pull_number: target.pullNumber,
+    event: 'COMMENT',
+    body: target.body,
+    comments: target.comments,
+  });
+}

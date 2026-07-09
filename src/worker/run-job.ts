@@ -5,11 +5,20 @@ import type { Sql } from '../db/pool.js';
 import type { WorkerConfig } from '../domain/config.js';
 import type { ReviewJob } from '../domain/types.js';
 import { getInstallationOctokitForRepo, type InstallationOctokit } from '../github/auth.js';
+import { parseDiffAnchors } from '../github/diff-anchors.js';
 import { fetchChangeRequestContext, fetchIssueContext } from '../github/fetch-context.js';
-import { listIssueComments, postIssueComment, updateIssueComment } from '../github/publish.js';
+import {
+  createPullRequestReview,
+  listIssueComments,
+  listReviewComments,
+  postIssueComment,
+  updateIssueComment,
+} from '../github/publish.js';
 import type { LlmModel } from '../llm/client.js';
 import { formatExplainComment, generateExplain } from '../llm/explain.js';
+import { generateReview } from '../llm/review.js';
 import { formatTriageComment, generateTriage } from '../llm/triage.js';
+import { selectReviewFindings } from './select-review-findings.js';
 
 export interface WorkerContext {
   sql: Sql;
@@ -89,6 +98,46 @@ async function runChangeRequestExplain(ctx: WorkerContext, job: ReviewJob, owner
   });
 }
 
+async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner: string, repo: string): Promise<void> {
+  if (job.changeRequestNumber == null) throw new Error('change_request_review job missing changeRequestNumber');
+
+  const octokit = await getInstallationOctokitForRepo(ctx.githubApp, job.repositoryFullName);
+  const pullNumber = job.changeRequestNumber;
+
+  const context = await fetchChangeRequestContext(octokit, { owner, repo, number: pullNumber });
+  const validAnchors = parseDiffAnchors(context.diff);
+
+  const outcome = await generateReview(ctx.llmModel, {
+    title: context.title,
+    body: context.body,
+    diff: context.diff,
+  });
+
+  const existingComments = await listReviewComments(octokit, { owner, repo, pullNumber });
+  const existingAnchors = new Set(
+    existingComments
+      .filter((c): c is { path: string; line: number; side: string } => c.line != null && c.side != null)
+      .map((c) => `${c.path}:${c.line}:${c.side}`),
+  );
+
+  const selected = selectReviewFindings(outcome.result.findings, validAnchors, existingAnchors);
+
+  await createPullRequestReview(octokit, {
+    owner,
+    repo,
+    pullNumber,
+    body: outcome.result.summary,
+    comments: selected.map((f) => ({ path: f.path, line: f.line, side: f.side, body: f.body })),
+  });
+
+  await recordLlmUsage(ctx.sql, {
+    jobId: job.id,
+    model: ctx.config.LLM_MODEL,
+    inputTokens: outcome.inputTokens,
+    outputTokens: outcome.outputTokens,
+  });
+}
+
 export async function runJob(ctx: WorkerContext, job: ReviewJob): Promise<void> {
   const [owner, repo] = job.repositoryFullName.split('/');
   if (!owner || !repo) throw new Error(`Malformed repositoryFullName "${job.repositoryFullName}"`);
@@ -99,6 +148,7 @@ export async function runJob(ctx: WorkerContext, job: ReviewJob): Promise<void> 
     case 'change_request_explain':
       return runChangeRequestExplain(ctx, job, owner, repo);
     case 'change_request_review':
+      return runChangeRequestReview(ctx, job, owner, repo);
     case 'review_thread_reply':
       throw new Error(`No handler yet for job type "${job.type}"`);
   }
