@@ -1,0 +1,41 @@
+# Flat base, no overlays. PRD explicitly says avoid premature abstraction,
+# there is exactly one deployment target described anywhere in the PRD/plan
+# (the ENAC cluster), and no dev-vs-prod split has been asked for — so a
+# dev/prod overlay pair would be speculative structure with nothing to
+# differentiate yet. Add overlays/{dev,prod}/ the day a second environment
+# (e.g. a staging namespace with different ALLOWED_REPOSITORIES) actually
+# exists, patching only what differs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: enac-ai-reviewer
+
+resources:
+  - namespace.yaml
+  - secret-web.yaml
+  - secret-worker.yaml
+  - job-migrate.yaml
+  - deployment-web.yaml
+  - deployment-worker.yaml
+  - service-web.yaml
+  - ingress.yaml
+  - networkpolicy-web.yaml
+  - networkpolicy-worker.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: enac-ai-reviewer
+  app.kubernetes.io/managed-by: kustomize
+
+# Lets CI retag every pod spec in this base with one command instead of
+# editing enac-ai-reviewer:latest by hand in three files:
+#   kustomize edit set image enac-ai-reviewer=ghcr.io/epfl-enac/enac-ai-reviewer:<git-sha>
+# Confirmed against .github/workflows/ci.yml: the `docker` job currently only
+# builds and tags `enac-ai-reviewer:ci` locally (push: false) — it does not
+# push anywhere yet, so there is no real registry/tag to point at today. This
+# is a no-op passthrough until CI grows a push step (e.g. to
+# ghcr.io/epfl-enac/...) and a deploy step that runs the `kustomize edit set
+# image` command above.
+images:
+  - name: enac-ai-reviewer
+    newName: enac-ai-reviewer
+    newTag: latest

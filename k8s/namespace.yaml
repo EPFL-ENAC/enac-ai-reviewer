@@ -1,0 +1,13 @@
+# Dedicated namespace so the NetworkPolicies in this base (which lean on
+# same-namespace podSelectors for Postgres/DNS) have a stable scope, and so
+# the two Secrets can't be confused with another app's secrets of the same
+# short name. Adjust if ENAC-IT's cluster convention places apps in a
+# pre-existing shared namespace instead (e.g. per-team namespace) — in that
+# case delete this file and set `namespace:` in kustomization.yaml to the
+# existing one.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: enac-ai-reviewer
+  labels:
+    app.kubernetes.io/part-of: enac-ai-reviewer
