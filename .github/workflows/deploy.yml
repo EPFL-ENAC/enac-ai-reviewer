@@ -28,7 +28,10 @@ jobs:
     secrets:
       token: ${{ secrets.CD_TOKEN }}
     with:
-      ORG: enac-it # TODO: confirm the intended ghcr.io namespace with the team
+      # Also the top-level folder name this dispatches to in
+      # EPFL-ENAC/enack8s-app-config (confirmed against that repo's real
+      # layout: co2-calculator's ORG "epfl" -> folder epfl/co2-calculator).
+      ORG: epfl-enac
       REPO: enac-ai-reviewer
       build_context: '["./"]' # single Dockerfile at repo root — one image, two commands (web/worker)
       helm_chart_name: enac-ai-reviewer
