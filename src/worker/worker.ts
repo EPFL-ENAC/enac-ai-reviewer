@@ -5,6 +5,7 @@ import { createPool } from '../db/pool.js';
 import { loadWorkerConfig } from '../domain/config.js';
 import { createGithubApp } from '../github/auth.js';
 import { isPermanentGithubError } from '../github/classify-error.js';
+import { createLlmModel } from '../llm/client.js';
 import { runJob } from './run-job.js';
 
 const POLL_INTERVAL_MS = 1500;
@@ -14,6 +15,7 @@ const HEARTBEAT_FILE = process.env.WORKER_HEARTBEAT_FILE ?? '/tmp/worker-heartbe
 const config = loadWorkerConfig();
 const sql = createPool(config.DATABASE_URL);
 const githubApp = createGithubApp(config.GITHUB_APP_ID, config.GITHUB_PRIVATE_KEY);
+const llmModel = createLlmModel(config.LLM_BASE_URL, config.LLM_API_KEY, config.LLM_MODEL);
 const logger = pino();
 
 let shuttingDown = false;
@@ -39,7 +41,7 @@ async function tick(): Promise<void> {
   logger.info({ jobId: job.id, jobType: job.type, repositoryFullName: job.repositoryFullName }, 'claimed job');
 
   try {
-    await runJob({ sql, githubApp, config, logger }, job);
+    await runJob({ sql, githubApp, config, logger, llmModel }, job);
     await completeJob(sql, job.id);
     logger.info({ jobId: job.id }, 'job completed');
   } catch (err) {
