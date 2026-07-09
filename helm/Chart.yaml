@@ -1,0 +1,14 @@
+apiVersion: v2
+name: enac-ai-reviewer
+description: Helm chart for enac-ai-reviewer, a self-hosted AI review bot for GitHub issues and pull requests
+kubeVersion: ">=1.24.0-0"
+icon: https://www.epfl.ch/wp-content/themes/wp-theme-2018/assets/svg/epfl-logo.svg
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - github
+  - llm
+  - code-review
+maintainers:
+  - name: EPFL-ENAC

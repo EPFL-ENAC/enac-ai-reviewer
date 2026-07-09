@@ -1,0 +1,42 @@
+# https://github.com/EPFL-ENAC/epfl-enac-build-push-deploy-action#readme
+name: deploy
+
+"on":
+  push:
+    branches:
+      - dev
+      - stage
+      - "ci-test/**"
+    tags: ["v*.*.*"]
+
+jobs:
+  publish-chart:
+    uses: ./.github/workflows/publish_chart.yaml
+    with:
+      name: "enac-ai-reviewer"
+      # <gh-org-lowercased>/<repo> — matches co2-calculator's convention.
+      # Chart lands at oci://ghcr.io/epfl-enac/enac-ai-reviewer/helm. This is
+      # independent of the image path below (that one includes `ORG` too).
+      registry: "epfl-enac/enac-ai-reviewer"
+  deploy:
+    needs:
+      - publish-chart
+    permissions:
+      contents: read
+      packages: write
+    uses: EPFL-ENAC/epfl-enac-build-push-deploy-action/.github/workflows/deploy.yml@v3.0.7
+    secrets:
+      token: ${{ secrets.CD_TOKEN }}
+    with:
+      ORG: enac-it # TODO: confirm the intended ghcr.io namespace with the team
+      REPO: enac-ai-reviewer
+      build_context: '["./"]' # single Dockerfile at repo root — one image, two commands (web/worker)
+      helm_chart_name: enac-ai-reviewer
+      helm_chart_version: ${{ needs.publish-chart.outputs.chart_version }}
+      registries: |
+        [
+          {
+            "registry": "ghcr.io",
+            "argo_repositories": ["EPFL-ENAC/enack8s-app-config"]
+          }
+        ]

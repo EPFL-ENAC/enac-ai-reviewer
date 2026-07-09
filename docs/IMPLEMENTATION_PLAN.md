@@ -7,7 +7,7 @@ Companion to [PRD.md](./PRD.md). This is the build order, not a re-statement of 
 | Concern | Choice | Rationale |
 |---|---|---|
 | Runtime | Node.js 22 LTS + TypeScript | Team standard; `@ai-sdk/*` is first-class here |
-| Package manager | pnpm | PRD specifies `pnpm start:web` / `pnpm start:worker` |
+| Package manager | npm | Team preference over pnpm/yarn |
 | Web framework | Fastify | Raw-body access for HMAC validation, fast, tiny |
 | GitHub client | `octokit` (`@octokit/app` + `@octokit/rest`) | Confined to `src/github/*` only |
 | LLM client | `@ai-sdk/openai-compatible` + `ai` (structured output via Zod schema) | PRD §14 |
@@ -38,14 +38,14 @@ Model notes (from the RCP AIaS catalogue, prices per 1M tokens):
 
 **Goal: `docker build` succeeds, CI is green on an empty-ish project.**
 
-- pnpm workspace-less single package, TypeScript strict, ESM.
+- npm single package, TypeScript strict, ESM.
 - `src/` layout exactly as PRD §6 (`web/`, `worker/`, `github/`, `llm/`, `db/`, `domain/`).
 - `src/domain/types.ts`: `ReviewJob`, `JobType` (`issue_triage | change_request_explain | change_request_review | review_thread_reply`), `JobStatus` (`queued | running | done | failed | dead`), `TriggerCommand`.
 - Zod-validated env config module — fails fast at boot; web and worker each validate only the vars they need (PRD §17 secret split).
 - Single `Dockerfile` (multi-stage, distroless or alpine runtime), entrypoint switches on `web` / `worker` arg.
 - `docker-compose.yml` with Postgres 16 for local dev.
 - GitHub Actions: lint (eslint), typecheck, test, docker build.
-- Scripts: `pnpm start:web`, `pnpm start:worker`, `pnpm migrate`.
+- Scripts: `npm run start:web`, `npm run start:worker`, `npm run migrate`.
 
 ## Phase 1 — Database + queue
 
@@ -126,7 +126,7 @@ Model notes (from the RCP AIaS catalogue, prices per 1M tokens):
 - Manifests (kustomize, matching existing ENAC-IT conventions): `ai-review-web` (2 replicas), `ai-review-worker` (1 replica), `Service`, `Ingress` for `/webhooks/github` only.
 - Two Secrets honoring the PRD §17 split — web pod never mounts `LLM_API_KEY` or `GITHUB_PRIVATE_KEY`.
 - NetworkPolicy: web → Postgres only; worker → Postgres + GitHub API + `inference.rcp.epfl.ch`.
-- Migration job (init container or pre-deploy Job running `pnpm migrate`).
+- Migration job (init container or pre-deploy Job running `npm run migrate`).
 - Probes: web `/healthz`; worker liveness via a heartbeat file or trivial HTTP port bound to localhost/pod-only.
 
 ## GitHub-side setup (parallel to Phase 0–2, mostly clicking)

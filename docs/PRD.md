@@ -73,8 +73,8 @@ One Docker image.
 Two commands:
 
 ```text
-pnpm start:web
-pnpm start:worker
+npm run start:web
+npm run start:worker
 ```
 
 Kubernetes:

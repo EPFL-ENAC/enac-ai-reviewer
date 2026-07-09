@@ -1,0 +1,233 @@
+# Default values for the enac-ai-reviewer chart.
+# Override using a custom values file or --set flags during helm install/upgrade.
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  imagePullSecrets: []
+  # - name: ghcr-creds
+
+# One image, two commands (PRD): both web and worker Deployments below run
+# this same image, differing only by their container `args` (["web"] /
+# ["worker"]). Overridden per-env by ArgoCD with the real digest/tag from CI.
+image:
+  # ghcr.io/<gh-owner-lowercased>/<org>/<repo>, where <org> matches the `ORG`
+  # input in .github/workflows/deploy.yml (currently "enac-it" — TODO:
+  # confirm that's the intended ghcr.io namespace with the team; if it
+  # changes, update it in both places).
+  repository: ghcr.io/epfl-enac/enac-it/enac-ai-reviewer
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+web:
+  enabled: true
+  replicaCount: 2
+
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    annotations: {}
+
+  # GITHUB_BOT_LOGIN is not sensitive (a public GitHub username, PRD §10);
+  # ALLOWED_REPOSITORIES is grouped here rather than in a secret for the
+  # same reason (PRD §17 groups it with the web pod's other config).
+  env:
+    GITHUB_BOT_LOGIN: "enac-ai-reviewer"
+    ALLOWED_REPOSITORIES: "EPFL-ENAC/co2-calculator"
+
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Web must NEVER see GITHUB_PRIVATE_KEY or LLM_API_KEY (PRD §17) — only the
+  # keys below are wired into the web Deployment's env.
+  existingSecret:
+    enabled: true
+    name: "" # REQUIRED when enabled=true: name of the pre-existing Secret
+    keys:
+      githubWebhookSecretKey: GITHUB_WEBHOOK_SECRET
+
+  # Chart-managed fallback when existingSecret.enabled=false (e.g. local/dev).
+  secrets:
+    GITHUB_WEBHOOK_SECRET: ""
+
+worker:
+  enabled: true
+  replicaCount: 1
+
+  # No Service/Ingress ever selects the worker — it must not be publicly
+  # exposed (PRD §5).
+  env:
+    GITHUB_BOT_LOGIN: "enac-ai-reviewer"
+    LLM_BASE_URL: "https://inference.rcp.epfl.ch/v1"
+    LLM_MODEL: "Qwen/Qwen3.6-35B-A3B"
+
+  heartbeatFile: /tmp/worker-heartbeat
+
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Exec probes on a heartbeat file the worker loop touches every poll tick —
+  # proves the poll loop is actually making progress, not just that the
+  # process exists. See helm/templates/worker-deployment.yaml.
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    freshnessSeconds: 30
+
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  existingSecret:
+    enabled: true
+    name: ""
+    keys:
+      githubAppIdKey: GITHUB_APP_ID
+      githubPrivateKeyKey: GITHUB_PRIVATE_KEY
+      llmApiKeyKey: LLM_API_KEY
+
+  secrets:
+    GITHUB_APP_ID: ""
+    GITHUB_PRIVATE_KEY: ""
+    LLM_API_KEY: ""
+
+# -----------------------------------------------------------------------------
+# Database: external PostgreSQL (managed separately), shared by web, worker,
+# and the migration job. Env var name matches src/domain/config.ts exactly
+# (DATABASE_URL), unlike the secret key name which is just a label.
+# -----------------------------------------------------------------------------
+database:
+  existingSecret:
+    name: "enac-ai-reviewer-db"
+    keys:
+      url: DATABASE_URL
+  waitForPostgres:
+    enabled: true
+    image:
+      repository: bitnamilegacy/postgresql
+      tag: "latest"
+      pullPolicy: IfNotPresent
+
+migrations:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  waitForPostgres:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # GitHub PR diffs can be large; bump further if 413s show up in
+    # webhook_rejected_total.
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  host: "enac-ai-reviewer.epfl.ch" # TODO: replace with the real hostname once assigned
+  tls: []
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  imagePullSecrets: []
+
+# Egress-focused (unlike co2-calculator's ingress-from-routes policies):
+# web may only reach Postgres, worker may only reach Postgres/GitHub/the LLM
+# gateway. Off by default so it doesn't fight an unknown cluster CNI; turn on
+# once verified against the target cluster.
+networkPolicies:
+  enabled: false
+  # Ingress source allowed to reach the web Service (typically the ingress
+  # controller's namespace). Example:
+  #   - namespaceSelector:
+  #       matchLabels:
+  #         kubernetes.io/metadata.name: ingress-nginx
+  ingressFromController: []
+  # Egress destination for Postgres. Example:
+  #   - namespaceSelector:
+  #       matchLabels:
+  #         kubernetes.io/metadata.name: postgres
+  postgresEgress: []

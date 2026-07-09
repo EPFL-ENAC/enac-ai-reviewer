@@ -1,0 +1,65 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "enac-ai-reviewer.fullname" . }}-migration-{{ .Release.Revision | default "1" }}
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "migration") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "migration") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "enac-ai-reviewer.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      initContainers:
+        {{- if .Values.database.waitForPostgres.enabled }}
+        - name: wait-for-postgres
+          image: {{ .Values.database.waitForPostgres.image.repository }}:{{ .Values.database.waitForPostgres.image.tag }}
+          imagePullPolicy: {{ .Values.database.waitForPostgres.image.pullPolicy }}
+          command: ['sh', '-c']
+          args:
+            - |
+              until pg_isready -d "${DATABASE_URL}"; do
+                echo "Waiting for PostgreSQL to be ready..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.databaseSecretName" . }}
+                  key: {{ .Values.database.existingSecret.keys.url }}
+          resources:
+            {{- toYaml .Values.migrations.waitForPostgres.resources | nindent 12 }}
+        {{- end }}
+      containers:
+        - name: migrate
+          image: "{{ include "enac-ai-reviewer.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ['npm', 'run', 'migrate', 'up']
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.databaseSecretName" . }}
+                  key: {{ .Values.database.existingSecret.keys.url }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

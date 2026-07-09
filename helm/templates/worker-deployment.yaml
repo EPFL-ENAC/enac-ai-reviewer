@@ -1,0 +1,122 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "enac-ai-reviewer.fullname" . }}-worker
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
+spec:
+  revisionHistoryLimit: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.worker.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "worker") | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # No Service/Ingress ever selects this pod — the worker must not be
+      # publicly exposed (PRD §5).
+      serviceAccountName: {{ include "enac-ai-reviewer.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.worker.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          securityContext:
+            {{- toYaml .Values.worker.securityContext | nindent 12 }}
+          image: "{{ include "enac-ai-reviewer.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["worker"]
+          env:
+            - name: WORKER_HEARTBEAT_FILE
+              value: {{ .Values.worker.heartbeatFile | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.databaseSecretName" . }}
+                  key: {{ .Values.database.existingSecret.keys.url }}
+            {{- range $key, $value := .Values.worker.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.workerSecretName" . }}
+                  key: {{ .Values.worker.existingSecret.keys.githubAppIdKey | default "GITHUB_APP_ID" }}
+            - name: GITHUB_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.workerSecretName" . }}
+                  key: {{ .Values.worker.existingSecret.keys.githubPrivateKeyKey | default "GITHUB_PRIVATE_KEY" }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.workerSecretName" . }}
+                  key: {{ .Values.worker.existingSecret.keys.llmApiKeyKey | default "LLM_API_KEY" }}
+          # Heartbeat-file exec probes: the worker loop touches this file every
+          # poll tick, so a stale/missing file proves the loop itself is stuck
+          # (wedged DB connection, hung event loop) — not just that the
+          # process is alive. See src/worker/worker.ts.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  test -f "$WORKER_HEARTBEAT_FILE" &&
+                  [ "$(( $(date +%s) - $(stat -c %Y "$WORKER_HEARTBEAT_FILE") ))" -lt {{ .Values.worker.livenessProbe.freshnessSeconds }} ]
+            initialDelaySeconds: {{ .Values.worker.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.livenessProbe.failureThreshold }}
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - test -f "$WORKER_HEARTBEAT_FILE"
+            initialDelaySeconds: {{ .Values.worker.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

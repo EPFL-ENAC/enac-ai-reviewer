@@ -1,0 +1,82 @@
+{{/*
+Egress-focused, unlike co2-calculator's ingress-from-routes policies: the web
+pod may only reach Postgres, and the worker pod may only reach Postgres,
+GitHub's API, and the LLM gateway. Neither pod accepts ingress from anywhere
+except the ingress controller (web) or nothing at all (worker — PRD §5 says
+it must never be publicly exposed).
+*/}}
+{{- if .Values.networkPolicies.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "enac-ai-reviewer.fullname" . }}-web
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "web") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "web") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicies.ingressFromController | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.web.service.targetPort }}
+  egress:
+    - to:
+        {{- toYaml .Values.networkPolicies.postgresEgress | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    # DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "enac-ai-reviewer.fullname" . }}-worker
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: [] # worker is never reachable from anywhere — PRD §5
+  egress:
+    - to:
+        {{- toYaml .Values.networkPolicies.postgresEgress | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    # GitHub API + LLM gateway. Vanilla NetworkPolicy can only scope egress by
+    # CIDR/podSelector, not hostname — this allows 443 to any non-private IP.
+    # Tighten to Cilium `toFQDNs` (or equivalent) once available on the
+    # target cluster.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}
