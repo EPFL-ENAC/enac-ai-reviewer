@@ -6,7 +6,9 @@ const postIssueComment = vi.fn();
 const listIssueComments = vi.fn();
 const updateIssueComment = vi.fn();
 const fetchIssueContext = vi.fn();
+const fetchChangeRequestContext = vi.fn();
 const generateTriage = vi.fn();
+const generateExplain = vi.fn();
 const recordLlmUsage = vi.fn();
 
 vi.mock('../github/auth.js', () => ({ getInstallationOctokitForRepo: (...args: unknown[]) => getInstallationOctokitForRepo(...args) }));
@@ -15,10 +17,17 @@ vi.mock('../github/publish.js', () => ({
   listIssueComments: (...args: unknown[]) => listIssueComments(...args),
   updateIssueComment: (...args: unknown[]) => updateIssueComment(...args),
 }));
-vi.mock('../github/fetch-context.js', () => ({ fetchIssueContext: (...args: unknown[]) => fetchIssueContext(...args) }));
+vi.mock('../github/fetch-context.js', () => ({
+  fetchIssueContext: (...args: unknown[]) => fetchIssueContext(...args),
+  fetchChangeRequestContext: (...args: unknown[]) => fetchChangeRequestContext(...args),
+}));
 vi.mock('../llm/triage.js', async () => {
   const actual = await vi.importActual<typeof import('../llm/triage.js')>('../llm/triage.js');
   return { ...actual, generateTriage: (...args: unknown[]) => generateTriage(...args) };
+});
+vi.mock('../llm/explain.js', async () => {
+  const actual = await vi.importActual<typeof import('../llm/explain.js')>('../llm/explain.js');
+  return { ...actual, generateExplain: (...args: unknown[]) => generateExplain(...args) };
 });
 vi.mock('../db/jobs.js', () => ({ recordLlmUsage: (...args: unknown[]) => recordLlmUsage(...args) }));
 
@@ -115,5 +124,45 @@ describe('runJob issue_triage', () => {
 
   it('throws if an issue_triage job is missing its issue number', async () => {
     await expect(runJob(ctx, job({ issueNumber: null }))).rejects.toThrow(/issueNumber/);
+  });
+});
+
+describe('runJob change_request_explain', () => {
+  const explainResult = { summary: 'Adds a widget.', keyChanges: ['Added Widget component'] };
+  const explainJob = () =>
+    job({ type: 'change_request_explain', issueNumber: null, changeRequestNumber: 7 });
+
+  beforeEach(() => {
+    fetchChangeRequestContext.mockResolvedValue({ title: 't', body: 'b', headSha: 'abc123', diff: 'diff --git a/x b/x' });
+    generateExplain.mockResolvedValue({ result: explainResult, inputTokens: 200, outputTokens: 80 });
+  });
+
+  it('posts a new summary comment when none exists yet', async () => {
+    await runJob(ctx, explainJob());
+
+    expect(fetchChangeRequestContext).toHaveBeenCalledWith({ fake: 'octokit' }, { owner: 'EPFL-ENAC', repo: 'co2-calculator', number: 7 });
+    expect(postIssueComment).toHaveBeenCalledWith(
+      { fake: 'octokit' },
+      expect.objectContaining({ owner: 'EPFL-ENAC', repo: 'co2-calculator', issueNumber: 7 }),
+    );
+    expect(recordLlmUsage).toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({ jobId: 'job-1', inputTokens: 200, outputTokens: 80 }),
+    );
+  });
+
+  it('updates its own prior summary comment instead of posting a new one', async () => {
+    listIssueComments.mockResolvedValue([{ id: 900, body: '### AI summary\n\nold', user: { login: 'enac-ai-reviewer' } }]);
+
+    await runJob(ctx, explainJob());
+
+    expect(updateIssueComment).toHaveBeenCalledWith({ fake: 'octokit' }, expect.objectContaining({ commentId: 900 }));
+    expect(postIssueComment).not.toHaveBeenCalled();
+  });
+
+  it('throws if a change_request_explain job is missing its change request number', async () => {
+    await expect(runJob(ctx, job({ type: 'change_request_explain', changeRequestNumber: null }))).rejects.toThrow(
+      /changeRequestNumber/,
+    );
   });
 });
