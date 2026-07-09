@@ -120,6 +120,15 @@ export async function failJob(sql: Sql, id: string, errorMessage: string): Promi
   `;
 }
 
+/** Marks a job permanently dead regardless of remaining attempts (e.g. GitHub 401/403/404). */
+export async function killJob(sql: Sql, id: string, errorMessage: string): Promise<void> {
+  await sql`
+    update review_jobs
+    set status = 'dead', finished_at = now(), error_message = ${errorMessage}
+    where id = ${id}
+  `;
+}
+
 export async function recordLlmUsage(
   sql: Sql,
   usage: { jobId: string; model: string; inputTokens: number; outputTokens: number },

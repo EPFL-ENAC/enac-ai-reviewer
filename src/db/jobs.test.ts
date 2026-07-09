@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createPool, type Sql } from './pool.js';
-import { claimJob, completeJob, enqueueJob, failJob, insertDelivery } from './jobs.js';
+import { claimJob, completeJob, enqueueJob, failJob, insertDelivery, killJob } from './jobs.js';
 import type { NewReviewJob } from '../domain/types.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -116,5 +116,16 @@ describe('completeJob / failJob', () => {
 
     const rows = await sql`select status from review_jobs where id = ${created!.id}`;
     expect(rows[0]?.status).toBe('dead');
+  });
+
+  it('killJob marks a job dead immediately, ignoring remaining attempts', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+    await claimJob(sql); // attempts -> 1 of 3, would normally still be retryable
+    await killJob(sql, created!.id, 'permanent auth failure');
+
+    const rows = await sql`select status, error_message, attempts from review_jobs where id = ${created!.id}`;
+    expect(rows[0]?.status).toBe('dead');
+    expect(rows[0]?.error_message).toBe('permanent auth failure');
+    expect(rows[0]?.attempts).toBe(1);
   });
 });
