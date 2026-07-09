@@ -15,7 +15,9 @@ ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/src/db/migrations ./dist/db/migrations
+# Same relative path as the source tree so `pnpm run migrate` (which passes
+# `-m src/db/migrations`) resolves identically in dev and in this image.
+COPY --from=build /app/src/db/migrations ./src/db/migrations
 
 ENTRYPOINT ["node", "dist/entrypoint.js"]
 CMD ["web"]
