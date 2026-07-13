@@ -14,7 +14,7 @@ global:
 image:
   # ghcr.io/<gh-owner-lowercased>/<org>/<repo>, where <org> matches the `ORG`
   # input in .github/workflows/deploy.yml. Confirmed: org = epfl-enac.
-  repository: ghcr.io/epfl-enac/enac-ai-reviewer
+  repository: ghcr.io/epfl-enac/epfl-enac/enac-ai-reviewer
   tag: "latest"
   pullPolicy: IfNotPresent
 
