@@ -50,3 +50,13 @@ npm run migrate up
 npm run test
 npm run dev:web        # or dev:worker
 ```
+
+To create a tunnel to receive GitHub webhooks on localhost, use [smee](https://smee.io/).
+go to smee's website to create a new channel, then run:
+
+```text
+npm install --global smee-client
+smee --url https://smee.io/<your-smee-channel> --target http://localhost:3000/webhook/github
+```
+
+Update the app on github to use the smee channel URL as the webhook URL, and you should see webhook events arrive in your local dev server.
