@@ -45,6 +45,7 @@ Not yet done, and blocking a real deployment:
 docker compose up -d postgres
 cp .env.example .env   # fill in GITHUB_WEBHOOK_SECRET etc.
 npm install
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 npm run migrate up
 npm run test
 npm run dev:web        # or dev:worker
