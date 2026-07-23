@@ -59,6 +59,8 @@ export function registerGithubWebhook(
 
     const orgLogin = payload.repository?.owner.login;
     const orgType = payload.repository?.owner.type;
+
+    // Also rejects if owner.type is undefined, since we only want to allow organizations. This is a safety measure in case GitHub changes the payload format in the future.
     if (!orgLogin || orgType !== 'Organization' || !config.allowedOrganizations.includes(orgLogin)) {
       webhookRejectedTotal.inc({ reason: 'organization_not_allowed' });
       request.log.info(
@@ -87,8 +89,19 @@ export function registerGithubWebhook(
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const status = (err as { status?: number }).status;
+      const isConfigError = status === 401 || status === 403;
+
       webhookRejectedTotal.inc({ reason: 'membership_check_failed' });
-      request.log.warn({ err: message, orgLogin, actor: trigger.triggerActor }, 'failed to check organization membership');
+      if (isConfigError) {
+        request.log.error(
+          { err: message, status, orgLogin, actor: trigger.triggerActor },
+          'failed to check organization membership due to configuration error',
+        );
+        return reply.code(500).send();
+      }
+
+      request.log.warn({ err: message, status, orgLogin, actor: trigger.triggerActor }, 'failed to check organization membership');
       return reply.code(204).send();
     }
 
