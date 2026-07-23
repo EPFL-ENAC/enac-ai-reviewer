@@ -3,8 +3,10 @@ import { z } from 'zod';
 const webSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(1),
   DATABASE_URL: z.string().min(1),
-  ALLOWED_REPOSITORIES: z.string().min(1),
+  ALLOWED_ORGANIZATIONS: z.string().min(1),
   GITHUB_BOT_LOGIN: z.string().min(1),
+  GITHUB_APP_ID: z.string().min(1),
+  GITHUB_PRIVATE_KEY: z.string().min(1),
   PORT: z.coerce.number().int().positive().default(3000),
 });
 
@@ -18,7 +20,7 @@ const workerSchema = z.object({
   LLM_MODEL: z.string().min(1),
 });
 
-export type WebConfig = z.infer<typeof webSchema> & { allowedRepositories: string[] };
+export type WebConfig = z.infer<typeof webSchema> & { allowedOrganizations: string[] };
 export type WorkerConfig = z.infer<typeof workerSchema>;
 
 function splitAllowlist(raw: string): string[] {
@@ -27,7 +29,7 @@ function splitAllowlist(raw: string): string[] {
 
 export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
   const parsed = webSchema.parse(env);
-  return { ...parsed, allowedRepositories: splitAllowlist(parsed.ALLOWED_REPOSITORIES) };
+  return { ...parsed, allowedOrganizations: splitAllowlist(parsed.ALLOWED_ORGANIZATIONS) };
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {

@@ -23,6 +23,7 @@ interface LabeledPayload {
   action: string;
   label: { name: string };
   repository: { full_name: string };
+  sender: { login: string };
   issue?: { number: number };
   pull_request?: { number: number; head: { sha: string } };
 }
@@ -31,6 +32,7 @@ interface AssignedPayload {
   action: string;
   assignee: { login: string } | null;
   repository: { full_name: string };
+  sender: { login: string };
   issue?: { number: number };
   pull_request?: { number: number; head: { sha: string } };
 }
@@ -80,7 +82,7 @@ function labeledTrigger(deliveryId: string, payload: LabeledPayload): MappedTrig
     issueNumber: isChangeRequest ? undefined : number,
     changeRequestNumber: isChangeRequest ? number : undefined,
     headSha,
-    triggerActor: `label:${payload.label.name}`,
+    triggerActor: payload.sender.login,
     dedupeKey: headSha
       ? `github:${repositoryFullName}:${jobType}:${number}:${headSha}`
       : `github:${repositoryFullName}:${jobType}:${number}:delivery-${deliveryId}`,
@@ -105,7 +107,7 @@ function assignedTrigger(botLogin: string, deliveryId: string, payload: Assigned
     issueNumber: isChangeRequest ? undefined : number,
     changeRequestNumber: isChangeRequest ? number : undefined,
     headSha,
-    triggerActor: 'assignment',
+    triggerActor: payload.sender.login,
     dedupeKey: headSha
       ? `github:${repositoryFullName}:${jobType}:${number}:${headSha}`
       : `github:${repositoryFullName}:${jobType}:${number}:delivery-${deliveryId}`,

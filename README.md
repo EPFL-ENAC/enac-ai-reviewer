@@ -43,13 +43,15 @@ Not yet done, and blocking a real deployment:
 
 ```text
 docker compose up -d postgres
-cp .env.example .env   # fill in GITHUB_WEBHOOK_SECRET etc.
+cp .env.example .env   # fill in GITHUB_WEBHOOK_SECRET, GITHUB_APP_ID, GITHUB_PRIVATE_KEY, etc.
 npm install
 export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 npm run migrate up
 npm run test
 npm run dev:web        # or dev:worker
 ```
+
+The bot authorizes by **organization**, not by repository: set `ALLOWED_ORGANIZATIONS` to a comma-separated list of GitHub org logins (e.g. `EPFL-ENAC`). The repository must belong to one of those orgs, and the user who triggers the bot must be a member of that org. The GitHub App needs the **Organization members** permission (`members:read`) for the membership check.
 
 To create a tunnel to receive GitHub webhooks on localhost, use [smee](https://smee.io/).
 go to smee's website to create a new channel, then run:
