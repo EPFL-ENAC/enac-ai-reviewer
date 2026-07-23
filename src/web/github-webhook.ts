@@ -1,7 +1,9 @@
+import type { App } from '@octokit/app';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { enqueueJob, insertDelivery } from '../db/jobs.js';
 import type { Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
+import { getInstallationOctokitForOrg, isOrgMember } from '../github/auth.js';
 import { mapWebhookEvent } from '../github/map-event.js';
 import { verifyWebhookSignature } from '../github/verify-webhook-signature.js';
 import { jobsCreatedTotal, webhookRejectedTotal, webhookReceivedTotal } from './metrics.js';
@@ -12,10 +14,18 @@ interface RawBodyRequest extends FastifyRequest {
 
 interface WebhookPayload {
   action?: string;
-  repository?: { full_name: string };
+  repository?: {
+    full_name: string;
+    owner: { login: string; type?: string };
+  };
 }
 
-export function registerGithubWebhook(app: FastifyInstance, sql: Sql, config: WebConfig): void {
+export function registerGithubWebhook(
+  app: FastifyInstance,
+  sql: Sql,
+  config: WebConfig,
+  githubApp: App,
+): void {
   app.post('/webhooks/github', async (request, reply) => {
     webhookReceivedTotal.inc();
 
@@ -47,15 +57,51 @@ export function registerGithubWebhook(app: FastifyInstance, sql: Sql, config: We
       return reply.code(200).send();
     }
 
-    if (!repositoryFullName || !config.allowedRepositories.includes(repositoryFullName)) {
-      webhookRejectedTotal.inc({ reason: 'repository_not_allowed' });
-      request.log.info({ event, repositoryFullName }, 'repository not allowed, ignoring webhook');
+    const orgLogin = payload.repository?.owner.login;
+    const orgType = payload.repository?.owner.type;
+
+    // Also rejects if owner.type is undefined, since we only want to allow organizations. This is a safety measure in case GitHub changes the payload format in the future.
+    if (!orgLogin || orgType !== 'Organization' || !config.allowedOrganizations.includes(orgLogin)) {
+      webhookRejectedTotal.inc({ reason: 'organization_not_allowed' });
+      request.log.info(
+        { event, repositoryFullName, orgLogin, orgType },
+        'organization not allowed, ignoring webhook',
+      );
       return reply.code(204).send();
     }
 
     const trigger = mapWebhookEvent(event, deliveryId, config.GITHUB_BOT_LOGIN, payload);
     if (!trigger) {
       request.log.info({ event, action: payload.action, repositoryFullName }, 'no trigger matched, ignoring webhook');
+      return reply.code(204).send();
+    }
+
+    try {
+      const orgOctokit = await getInstallationOctokitForOrg(githubApp, orgLogin);
+      const actorAllowed = await isOrgMember(orgOctokit, orgLogin, trigger.triggerActor);
+      if (!actorAllowed) {
+        webhookRejectedTotal.inc({ reason: 'actor_not_in_organization' });
+        request.log.info(
+          { event, repositoryFullName, orgLogin, actor: trigger.triggerActor },
+          'trigger actor is not an organization member, ignoring webhook',
+        );
+        return reply.code(204).send();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = (err as { status?: number }).status;
+      const isConfigError = status === 401 || status === 403;
+
+      webhookRejectedTotal.inc({ reason: 'membership_check_failed' });
+      if (isConfigError) {
+        request.log.error(
+          { err: message, status, orgLogin, actor: trigger.triggerActor },
+          'failed to check organization membership due to configuration error',
+        );
+        return reply.code(500).send();
+      }
+
+      request.log.warn({ err: message, status, orgLogin, actor: trigger.triggerActor }, 'failed to check organization membership');
       return reply.code(204).send();
     }
 

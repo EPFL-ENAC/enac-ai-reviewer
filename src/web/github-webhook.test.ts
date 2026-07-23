@@ -1,8 +1,10 @@
+import type { App } from '@octokit/app';
 import { createHmac } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { createPool, type Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
+import { resetInstallationIdCache } from '../github/auth.js';
 import { buildApp } from './app.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -11,18 +13,63 @@ if (!databaseUrl) {
 }
 
 const WEBHOOK_SECRET = 'test-secret';
+const ALLOWED_ORG = 'EPFL-ENAC';
 
 const config: WebConfig = {
   GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET,
   DATABASE_URL: databaseUrl,
-  ALLOWED_REPOSITORIES: 'EPFL-ENAC/co2-calculator',
+  ALLOWED_ORGANIZATIONS: ALLOWED_ORG,
   GITHUB_BOT_LOGIN: 'enac-ai-reviewer',
+  GITHUB_APP_ID: '123',
+  GITHUB_PRIVATE_KEY: 'dummy',
   PORT: 3000,
-  allowedRepositories: ['EPFL-ENAC/co2-calculator'],
+  allowedOrganizations: [ALLOWED_ORG],
 };
 
 const sql: Sql = createPool(databaseUrl);
 let app: FastifyInstance;
+
+function repository(overrides: Record<string, unknown> = {}) {
+  return {
+    full_name: `${ALLOWED_ORG}/co2-calculator`,
+    owner: { login: ALLOWED_ORG, type: 'Organization' },
+    ...overrides,
+  };
+}
+
+function createMockGithubApp(opts: { members: Set<string>; installationStatus?: number }): App {
+  return {
+    octokit: {
+      request: async (route: string, _params: Record<string, unknown>) => {
+        if (route === 'GET /orgs/{org}/installation') {
+          if (opts.installationStatus != null) {
+            const err = new Error('Installation lookup failed') as Error & { status: number };
+            err.status = opts.installationStatus;
+            throw err;
+          }
+          return { data: { id: 123 } };
+        }
+        throw new Error(`Unexpected app route: ${route}`);
+      },
+    },
+    getInstallationOctokit: async (_id: number) => ({
+      request: async (route: string, params: Record<string, unknown>) => {
+        if (route === 'GET /orgs/{org}/members/{username}') {
+          const username = params.username as string;
+          if (opts.members.has(username)) {
+            return undefined;
+          }
+          const err = new Error('Not Found') as Error & { status: number };
+          err.status = 404;
+          throw err;
+        }
+        throw new Error(`Unexpected installation route: ${route}`);
+      },
+    }),
+  } as unknown as App;
+}
+
+const mockGithubApp = createMockGithubApp({ members: new Set(['guilbep']) });
 
 function sign(body: string): string {
   return `sha256=${createHmac('sha256', WEBHOOK_SECRET).update(body).digest('hex')}`;
@@ -49,13 +96,14 @@ function issueCommentPayload(overrides: Record<string, unknown> = {}) {
     action: 'created',
     comment: { id: 1, body: '@enac-ai-reviewer triage', user: { login: 'guilbep' } },
     issue: { number: 42 },
-    repository: { full_name: 'EPFL-ENAC/co2-calculator' },
+    repository: repository(),
     ...overrides,
   };
 }
 
 beforeEach(async () => {
-  app = buildApp(sql, config);
+  resetInstallationIdCache();
+  app = buildApp(sql, config, mockGithubApp);
   await sql`truncate llm_usage, review_jobs, webhook_deliveries`;
 });
 
@@ -92,11 +140,35 @@ describe('POST /webhooks/github', () => {
     expect(rows[0]?.count).toBe(1);
   });
 
-  it('ignores a repository outside the allowlist', async () => {
+  it('ignores an organization outside the allowlist', async () => {
     const res = await postWebhook({
       event: 'issue_comment',
       deliveryId: 'd1',
-      payload: issueCommentPayload({ repository: { full_name: 'someone-else/other-repo' } }),
+      payload: issueCommentPayload({ repository: repository({ owner: { login: 'someone-else', type: 'Organization' } }) }),
+    });
+    expect(res.statusCode).toBe(204);
+
+    const rows = await sql`select count(*)::int as count from review_jobs`;
+    expect(rows[0]?.count).toBe(0);
+  });
+
+  it('ignores a repository owned by a user', async () => {
+    const res = await postWebhook({
+      event: 'issue_comment',
+      deliveryId: 'd1',
+      payload: issueCommentPayload({ repository: repository({ owner: { login: 'guilbep', type: 'User' } }) }),
+    });
+    expect(res.statusCode).toBe(204);
+
+    const rows = await sql`select count(*)::int as count from review_jobs`;
+    expect(rows[0]?.count).toBe(0);
+  });
+
+  it('ignores a trigger from a non-member actor', async () => {
+    const res = await postWebhook({
+      event: 'issue_comment',
+      deliveryId: 'd1',
+      payload: issueCommentPayload({ comment: { id: 1, body: '@enac-ai-reviewer triage', user: { login: 'outsider' } } }),
     });
     expect(res.statusCode).toBe(204);
 
@@ -129,7 +201,8 @@ describe('POST /webhooks/github', () => {
     const payload = {
       action: 'labeled',
       label: { name: 'ai-review' },
-      repository: { full_name: 'EPFL-ENAC/co2-calculator' },
+      sender: { login: 'guilbep' },
+      repository: repository(),
       pull_request: { number: 7, head: { sha: 'abc123' } },
     };
     const res = await postWebhook({ event: 'pull_request', deliveryId: 'd1', payload });
@@ -146,12 +219,11 @@ describe('POST /webhooks/github', () => {
     const payload = {
       action: 'labeled',
       label: { name: 'ai-review' },
-      repository: { full_name: 'EPFL-ENAC/co2-calculator' },
+      sender: { login: 'guilbep' },
+      repository: repository(),
       pull_request: { number: 7, head: { sha: 'abc123' } },
     };
     await postWebhook({ event: 'pull_request', deliveryId: 'd1', payload });
-    // Simulates the label being removed and re-applied (or a second reviewer
-    // re-triggering) while the head sha is unchanged — same dedupe_key, no new job.
     const second = await postWebhook({ event: 'pull_request', deliveryId: 'd2', payload });
     expect(second.statusCode).toBe(202);
 
@@ -164,5 +236,43 @@ describe('POST /webhooks/github', () => {
     const res = await postWebhook({ event: 'issue_comment', deliveryId: 'd1', payload: issueCommentPayload() });
     expect(res.statusCode).toBe(202);
     expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('returns 500 when membership check fails due to a configuration error', async () => {
+    const configApp = buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), installationStatus: 403 }));
+    const res = await configApp.inject({
+      method: 'POST',
+      url: '/webhooks/github',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-event': 'issue_comment',
+        'x-github-delivery': 'd1',
+        'x-hub-signature-256': sign(JSON.stringify(issueCommentPayload())),
+      },
+      payload: JSON.stringify(issueCommentPayload()),
+    });
+    expect(res.statusCode).toBe(500);
+
+    const rows = await sql`select count(*)::int as count from review_jobs`;
+    expect(rows[0]?.count).toBe(0);
+  });
+
+  it('returns 204 when membership check fails due to a transient error', async () => {
+    const configApp = buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), installationStatus: 502 }));
+    const res = await configApp.inject({
+      method: 'POST',
+      url: '/webhooks/github',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-event': 'issue_comment',
+        'x-github-delivery': 'd1',
+        'x-hub-signature-256': sign(JSON.stringify(issueCommentPayload())),
+      },
+      payload: JSON.stringify(issueCommentPayload()),
+    });
+    expect(res.statusCode).toBe(204);
+
+    const rows = await sql`select count(*)::int as count from review_jobs`;
+    expect(rows[0]?.count).toBe(0);
   });
 });

@@ -1,5 +1,33 @@
-import { describe, expect, it } from 'vitest';
-import { normalizePrivateKey } from './auth.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizePrivateKey, getInstallationOctokitForOrg, getInstallationOctokitForRepo, resetInstallationIdCache } from './auth.js';
+import type { App } from '@octokit/app';
+
+function createMockApp(installationIds: { orgs?: Record<string, number>; repos?: Record<string, number> } = {}): App {
+  const requests: string[] = [];
+  return {
+    octokit: {
+      request: async (route: string, params: Record<string, unknown>) => {
+        requests.push(route);
+        if (route === 'GET /orgs/{org}/installation') {
+          const org = params.org as string;
+          const id = installationIds.orgs?.[org];
+          if (id === undefined) throw new Error(`Unexpected org: ${org}`);
+          return { data: { id } };
+        }
+        if (route === 'GET /repos/{owner}/{repo}/installation') {
+          const owner = params.owner as string;
+          const repo = params.repo as string;
+          const id = installationIds.repos?.[`${owner}/${repo}`];
+          if (id === undefined) throw new Error(`Unexpected repo: ${owner}/${repo}`);
+          return { data: { id } };
+        }
+        throw new Error(`Unexpected route: ${route}`);
+      },
+    },
+    getInstallationOctokit: async (id: number) => ({ installationId: id } as unknown as App['getInstallationOctokit']),
+    getRequests: () => requests,
+  } as unknown as App;
+}
 
 describe('normalizePrivateKey', () => {
   it('returns a multi-line key unchanged', () => {
@@ -21,5 +49,66 @@ describe('normalizePrivateKey', () => {
 
   it('returns non-PEM strings unchanged', () => {
     expect(normalizePrivateKey('not a key')).toBe('not a key');
+  });
+});
+
+describe('installation ID cache', () => {
+  beforeEach(() => {
+    resetInstallationIdCache();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('caches org installation IDs across calls', async () => {
+    const mockApp = createMockApp({ orgs: { 'EPFL-ENAC': 123 } });
+
+    await getInstallationOctokitForOrg(mockApp, 'EPFL-ENAC');
+    await getInstallationOctokitForOrg(mockApp, 'EPFL-ENAC');
+
+    expect((mockApp as unknown as { getRequests: () => string[] }).getRequests()).toEqual([
+      'GET /orgs/{org}/installation',
+    ]);
+  });
+
+  it('caches repo installation IDs across calls', async () => {
+    const mockApp = createMockApp({ repos: { 'EPFL-ENAC/co2-calculator': 456 } });
+
+    await getInstallationOctokitForRepo(mockApp, 'EPFL-ENAC/co2-calculator');
+    await getInstallationOctokitForRepo(mockApp, 'EPFL-ENAC/co2-calculator');
+
+    expect((mockApp as unknown as { getRequests: () => string[] }).getRequests()).toEqual([
+      'GET /repos/{owner}/{repo}/installation',
+    ]);
+  });
+
+  it('refetches after the cache entry expires', async () => {
+    const mockApp = createMockApp({ orgs: { 'EPFL-ENAC': 123 } });
+
+    await getInstallationOctokitForOrg(mockApp, 'EPFL-ENAC');
+    vi.advanceTimersByTime(60 * 60 * 1000 + 1);
+    await getInstallationOctokitForOrg(mockApp, 'EPFL-ENAC');
+
+    expect((mockApp as unknown as { getRequests: () => string[] }).getRequests()).toEqual([
+      'GET /orgs/{org}/installation',
+      'GET /orgs/{org}/installation',
+    ]);
+  });
+
+  it('does not share cache entries between orgs and repos', async () => {
+    const mockApp = createMockApp({
+      orgs: { 'EPFL-ENAC': 123 },
+      repos: { 'EPFL-ENAC/co2-calculator': 456 },
+    });
+
+    await getInstallationOctokitForOrg(mockApp, 'EPFL-ENAC');
+    await getInstallationOctokitForRepo(mockApp, 'EPFL-ENAC/co2-calculator');
+
+    expect((mockApp as unknown as { getRequests: () => string[] }).getRequests()).toEqual([
+      'GET /orgs/{org}/installation',
+      'GET /repos/{owner}/{repo}/installation',
+    ]);
   });
 });
