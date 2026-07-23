@@ -72,6 +72,11 @@ export function registerGithubWebhook(app: FastifyInstance, sql: Sql, config: We
     if (job) {
       jobsCreatedTotal.inc({ job_type: trigger.jobType });
       request.log.info({ jobId: job.id, jobType: job.type, repositoryFullName }, 'job enqueued');
+    } else {
+      request.log.info(
+        { jobType: trigger.jobType, repositoryFullName, dedupeKey: trigger.dedupeKey },
+        'job deduplicated, not enqueued',
+      );
     }
 
     return reply.code(202).send();

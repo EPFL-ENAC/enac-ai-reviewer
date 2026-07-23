@@ -56,7 +56,7 @@ go to smee's website to create a new channel, then run:
 
 ```text
 npm install --global smee-client
-smee --url https://smee.io/<your-smee-channel> --target http://localhost:3000/webhook/github
+smee --url https://smee.io/<your-smee-channel> --target http://localhost:3000/webhooks/github
 ```
 
 Update the app on github to use the smee channel URL as the webhook URL, and you should see webhook events arrive in your local dev server.
