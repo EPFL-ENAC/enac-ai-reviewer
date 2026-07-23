@@ -49,11 +49,13 @@ export function registerGithubWebhook(app: FastifyInstance, sql: Sql, config: We
 
     if (!repositoryFullName || !config.allowedRepositories.includes(repositoryFullName)) {
       webhookRejectedTotal.inc({ reason: 'repository_not_allowed' });
+      request.log.info({ event, repositoryFullName }, 'repository not allowed, ignoring webhook');
       return reply.code(204).send();
     }
 
     const trigger = mapWebhookEvent(event, deliveryId, config.GITHUB_BOT_LOGIN, payload);
     if (!trigger) {
+      request.log.info({ event, action: payload.action, repositoryFullName }, 'no trigger matched, ignoring webhook');
       return reply.code(204).send();
     }
 
