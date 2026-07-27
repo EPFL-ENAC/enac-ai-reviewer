@@ -5,6 +5,8 @@ metadata:
   name: {{ include "enac-ai-reviewer.fullname" . }}-worker
   labels:
     {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   revisionHistoryLimit: 2
 
