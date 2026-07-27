@@ -40,15 +40,18 @@ jobs:
 
       - name: Render Chart
         # Smoke-test both secret paths. Default (existingSecret) needs Secret
-        # names; chart-managed (dev) needs throwaway values. Real deploys
-        # inject the real values.
+        # names and disables embedded Postgres; chart-managed (dev) needs
+        # throwaway values including a Postgres password. Real deploys inject
+        # the real values.
         run: |
           helm template . \
             --set web.existingSecret.name=ci-web-secret \
-            --set worker.existingSecret.name=ci-worker-secret
+            --set worker.existingSecret.name=ci-worker-secret \
+            --set database.postgresql.enabled=false
           helm template . \
             --set web.existingSecret.enabled=false --set web.secrets.GITHUB_WEBHOOK_SECRET=ci-webhook-secret \
-            --set worker.existingSecret.enabled=false --set worker.secrets.GITHUB_APP_ID=1 --set worker.secrets.GITHUB_PRIVATE_KEY=ci-pem --set worker.secrets.LLM_API_KEY=ci-llm-key
+            --set worker.existingSecret.enabled=false --set worker.secrets.GITHUB_APP_ID=1 --set worker.secrets.GITHUB_PRIVATE_KEY=ci-pem --set worker.secrets.LLM_API_KEY=ci-llm-key \
+            --set database.postgresql.auth.password=ci-postgres-password
 
       - name: Set Helm chart version based on branch
         run: |
