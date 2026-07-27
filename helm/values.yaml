@@ -179,12 +179,8 @@ database:
       username: enac_ai
       database: enac_ai_reviewer
       # Plain-text password (simple, but not recommended for GitOps).
-      # Either this OR existingSecret must be set when postgresql.enabled=true.
+      # Only used when postgresql.enabled=true and existingSecret.name is empty.
       password: ""
-      # Read the password from an existing Secret (e.g. managed by Infisical).
-      existingSecret:
-        name: ""
-        key: password
     persistence:
       enabled: true
       size: 5Gi
@@ -200,11 +196,17 @@ database:
     service:
       port: 5432
 
-  # External PostgreSQL configuration. Only used when postgresql.enabled=false.
+  # Pre-existing Secret that contains the database credentials.
+  # When postgresql.enabled=true and this name is set, the chart expects the
+  # Secret to contain both:
+  #   - a key matching keys.password (for the Postgres container)
+  #   - a key matching keys.url      (for the app / migration job)
+  # When postgresql.enabled=false, only keys.url is required.
   existingSecret:
-    name: "enac-ai-reviewer-db"
+    name: ""
     keys:
       url: DATABASE_URL
+      password: POSTGRES_PASSWORD
   waitForPostgres:
     enabled: true
     image:

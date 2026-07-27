@@ -47,13 +47,17 @@ database:
       password: "change-me"
 
 # Option B: password from an existing Secret (recommended)
+# The existing Secret must contain:
+#   - POSTGRES_PASSWORD: the raw password for the Postgres container
+#   - DATABASE_URL: the full connection string for the app
 database:
   postgresql:
     enabled: true
-    auth:
-      existingSecret:
-        name: "enac-ai-reviewer-secret"
-        key: "POSTGRES_PASSWORD"
+  existingSecret:
+    name: "enac-ai-reviewer-secret"
+    keys:
+      password: POSTGRES_PASSWORD
+      url: DATABASE_URL
 ```
 
 For larger or shared deployments, disable the embedded Postgres and provide your own Secret:

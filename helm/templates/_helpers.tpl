@@ -66,7 +66,8 @@ app.kubernetes.io/component: {{ .component }}
 
 {{- define "enac-ai-reviewer.databaseSecretName" -}}
 {{- if .Values.database.postgresql.enabled -}}
-{{ include "enac-ai-reviewer.fullname" . }}-postgresql
+{{- $defaultName := printf "%s-postgresql" (include "enac-ai-reviewer.fullname" .) -}}
+{{- default $defaultName .Values.database.existingSecret.name -}}
 {{- else -}}
 {{- required "database.existingSecret.name must be set to your pre-existing Postgres connection Secret's name, or set database.postgresql.enabled=true." .Values.database.existingSecret.name -}}
 {{- end -}}

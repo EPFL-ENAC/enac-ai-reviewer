@@ -1,18 +1,11 @@
 {{- if .Values.database.postgresql.enabled }}
 {{- $fullname := include "enac-ai-reviewer.postgresqlFullname" . -}}
 {{- $auth := .Values.database.postgresql.auth -}}
-{{- $password := "" -}}
-{{- if $auth.existingSecret.name -}}
-{{- $existingSecret := lookup "v1" "Secret" .Release.Namespace $auth.existingSecret.name -}}
-{{- if and $existingSecret $existingSecret.data -}}
-{{- with index $existingSecret.data $auth.existingSecret.key -}}
-{{- $password = . | b64dec -}}
-{{- end -}}
-{{- end -}}
-{{- else -}}
-{{- $password = $auth.password -}}
-{{- end -}}
-{{- $password = required "database.postgresql.auth.password or database.postgresql.auth.existingSecret must be set when database.postgresql.enabled=true" $password -}}
+{{- $existingSecret := .Values.database.existingSecret -}}
+{{- $useExistingSecret := not (empty $existingSecret.name) -}}
+{{- if not $useExistingSecret -}}
+{{- $password := required "database.postgresql.auth.password must be set when database.postgresql.enabled=true and database.existingSecret.name is empty" $auth.password -}}
+---
 apiVersion: v1
 kind: Secret
 metadata:
@@ -23,6 +16,7 @@ type: Opaque
 stringData:
   password: {{ $password | quote }}
   DATABASE_URL: "postgresql://{{ $auth.username }}:{{ $password | urlquery }}@{{ $fullname }}:{{ .Values.database.postgresql.service.port }}/{{ $auth.database }}"
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -100,8 +94,8 @@ spec:
             - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $fullname }}
-                  key: password
+                  name: {{ $existingSecret.name | default $fullname }}
+                  key: {{ $existingSecret.keys.password | default "password" }}
             - name: POSTGRESQL_DATABASE
               value: {{ $auth.database | quote }}
             - name: PGDATA
