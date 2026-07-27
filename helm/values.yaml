@@ -175,7 +175,7 @@ database:
     enabled: true
     image:
       repository: bitnamilegacy/postgresql
-      tag: "latest"
+      tag: "17.5.0"
       pullPolicy: IfNotPresent
 
 migrations:
