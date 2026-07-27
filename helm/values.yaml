@@ -162,11 +162,40 @@ worker:
     LLM_API_KEY: ""
 
 # -----------------------------------------------------------------------------
-# Database: external PostgreSQL (managed separately), shared by web, worker,
-# and the migration job. Env var name matches src/domain/config.ts exactly
-# (DATABASE_URL), unlike the secret key name which is just a label.
+# Database: shared by web, worker, and the migration job. Env var name matches
+# src/domain/config.ts exactly (DATABASE_URL).
+# Either use the embedded Postgres (recommended for small deployments) or
+# provide your own pre-existing Secret with a DATABASE_URL key.
 # -----------------------------------------------------------------------------
 database:
+  # Embedded PostgreSQL for small / self-contained deployments.
+  postgresql:
+    enabled: true
+    image:
+      repository: bitnamilegacy/postgresql
+      tag: "17.5.0"
+      pullPolicy: IfNotPresent
+    auth:
+      username: enac_ai
+      # REQUIRED when postgresql.enabled=true. Change this to a strong password.
+      password: ""
+      database: enac_ai_reviewer
+    persistence:
+      enabled: true
+      size: 5Gi
+      # Leave empty to use the cluster default storage class.
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    service:
+      port: 5432
+
+  # External PostgreSQL configuration. Only used when postgresql.enabled=false.
   existingSecret:
     name: "enac-ai-reviewer-db"
     keys:
