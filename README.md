@@ -34,7 +34,27 @@ Not yet done, and blocking a real deployment:
 
 ### Database
 
-By default the Helm chart deploys an embedded PostgreSQL instance (`database.postgresql.enabled=true`). This is suitable for small deployments. Set `database.postgresql.auth.password` in your ArgoCD values file.
+By default the Helm chart deploys an embedded PostgreSQL instance (`database.postgresql.enabled=true`). This is suitable for small deployments.
+
+For the embedded Postgres you can either provide the password directly in values (simple, but stores a secret in Git) or pull it from an existing Secret managed by Infisical/external-secrets:
+
+```yaml
+# Option A: password from values (not recommended for production)
+database:
+  postgresql:
+    enabled: true
+    auth:
+      password: "change-me"
+
+# Option B: password from an existing Secret (recommended)
+database:
+  postgresql:
+    enabled: true
+    auth:
+      existingSecret:
+        name: "enac-ai-reviewer-secret"
+        key: "POSTGRES_PASSWORD"
+```
 
 For larger or shared deployments, disable the embedded Postgres and provide your own Secret:
 

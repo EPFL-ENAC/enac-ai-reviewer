@@ -177,9 +177,14 @@ database:
       pullPolicy: IfNotPresent
     auth:
       username: enac_ai
-      # REQUIRED when postgresql.enabled=true. Change this to a strong password.
-      password: ""
       database: enac_ai_reviewer
+      # Plain-text password (simple, but not recommended for GitOps).
+      # Either this OR existingSecret must be set when postgresql.enabled=true.
+      password: ""
+      # Read the password from an existing Secret (e.g. managed by Infisical).
+      existingSecret:
+        name: ""
+        key: password
     persistence:
       enabled: true
       size: 5Gi
