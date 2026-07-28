@@ -28,12 +28,13 @@ web:
     targetPort: 3000
     annotations: {}
 
-  # GITHUB_BOT_LOGIN is not sensitive (a public GitHub username, PRD §10);
-  # ALLOWED_REPOSITORIES is grouped here rather than in a secret for the
-  # same reason (PRD §17 groups it with the web pod's other config).
+  # GITHUB_BOT_LOGIN and ALLOWED_ORGANIZATIONS are not sensitive (public
+  # GitHub usernames / org logins) so they are grouped here rather than in
+  # a Secret. ALLOWED_ORGANIZATIONS is a comma-separated list of GitHub org
+  # logins (e.g. "EPFL-ENAC"), matching src/domain/config.ts.
   env:
     GITHUB_BOT_LOGIN: "enac-ai-reviewer"
-    ALLOWED_REPOSITORIES: "EPFL-ENAC/co2-calculator"
+    ALLOWED_ORGANIZATIONS: "EPFL-ENAC"
 
   podAnnotations: {}
   podSecurityContext:
@@ -85,17 +86,23 @@ web:
   tolerations: []
   affinity: {}
 
-  # Web must NEVER see GITHUB_PRIVATE_KEY or LLM_API_KEY (PRD §17) — only the
-  # keys below are wired into the web Deployment's env.
+  # The web process validates webhooks and also checks that the triggering
+  # actor is a member of an allowed organization, which requires the GitHub
+  # App's credentials (see src/web/github-webhook.ts). LLM_API_KEY is still
+  # never given to the web pod.
   existingSecret:
     enabled: true
     name: "" # REQUIRED when enabled=true: name of the pre-existing Secret
     keys:
       githubWebhookSecretKey: GITHUB_WEBHOOK_SECRET
+      githubAppIdKey: GITHUB_APP_ID
+      githubPrivateKeyKey: GITHUB_PRIVATE_KEY
 
   # Chart-managed fallback when existingSecret.enabled=false (e.g. local/dev).
   secrets:
     GITHUB_WEBHOOK_SECRET: ""
+    GITHUB_APP_ID: ""
+    GITHUB_PRIVATE_KEY: ""
 
 worker:
   enabled: true

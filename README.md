@@ -27,7 +27,7 @@ CI/CD follows the same pattern as [co2-calculator](https://github.com/EPFL-ENAC/
 Not yet done, and blocking a real deployment:
 - No GitHub App has been created in the EPFL-ENAC org yet (webhook URL, permissions, and `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY`/`GITHUB_WEBHOOK_SECRET` all depend on that).
 - No real `LLM_API_KEY` for the RCP AIaS endpoint has been provisioned.
-- The `ORG: enac-it` input in `deploy.yml` and the matching `helm/values.yaml` `image.repository` are a reasonable guess at the ghcr.io namespace, not a confirmed team convention — adjust both together if wrong.
+- The `ORG: epfl-enac` input in `deploy.yml` and the matching `helm/values.yaml` `image.repository` (`ghcr.io/epfl-enac/epfl-enac/enac-ai-reviewer`) are configured for the EPFL-ENAC GitHub organization; adjust both together if the namespace convention changes.
 - `CD_TOKEN` must be available as a secret to this repo (org-level in EPFL-ENAC, or added per-repo) for the manifest-repo dispatch step to authenticate.
 - A folder for `enac-ai-reviewer` needs to be added to `enack8s-app-config` (or wherever it's GitOps-managed) so the dispatched `update-manifest` event has something to update.
 - Not yet exercised against a live GitHub App + real PR/issue traffic.

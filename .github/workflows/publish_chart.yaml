@@ -50,7 +50,10 @@ jobs:
             --set database.postgresql.enabled=false \
             --set database.existingSecret.name=ci-db-secret
           helm template . \
-            --set web.existingSecret.enabled=false --set web.secrets.GITHUB_WEBHOOK_SECRET=ci-webhook-secret \
+            --set web.existingSecret.enabled=false \
+            --set web.secrets.GITHUB_WEBHOOK_SECRET=ci-webhook-secret \
+            --set web.secrets.GITHUB_APP_ID=ci-app-id \
+            --set web.secrets.GITHUB_PRIVATE_KEY=ci-pem \
             --set worker.existingSecret.enabled=false --set worker.secrets.GITHUB_APP_ID=1 --set worker.secrets.GITHUB_PRIVATE_KEY=ci-pem --set worker.secrets.LLM_API_KEY=ci-llm-key \
             --set database.postgresql.auth.password=ci-postgres-password
 
