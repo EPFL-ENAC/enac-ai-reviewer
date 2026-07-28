@@ -1,0 +1,140 @@
+{{- if .Values.database.postgresql.enabled }}
+{{- $fullname := include "enac-ai-reviewer.postgresqlFullname" . -}}
+{{- $auth := .Values.database.postgresql.auth -}}
+{{- $existingSecret := .Values.database.existingSecret -}}
+{{- $useExistingSecret := not (empty $existingSecret.name) -}}
+{{- if not $useExistingSecret -}}
+{{- $password := required "database.postgresql.auth.password must be set when database.postgresql.enabled=true and database.existingSecret.name is empty" $auth.password -}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+type: Opaque
+stringData:
+  password: {{ $password | quote }}
+  DATABASE_URL: "postgresql://{{ $auth.username }}:{{ $password | urlquery }}@{{ $fullname }}:{{ .Values.database.postgresql.service.port }}/{{ $auth.database }}"
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: {{ .Values.database.postgresql.service.port }}
+      targetPort: postgresql
+  selector:
+    {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+---
+{{- if .Values.database.postgresql.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.database.postgresql.persistence.size }}
+  {{- with .Values.database.postgresql.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "enac-ai-reviewer.componentSelectorLabels" (dict "ctx" . "component" "postgresql") | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: postgresql
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          image: "{{ .Values.database.postgresql.image.repository }}:{{ .Values.database.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.database.postgresql.image.pullPolicy }}
+          ports:
+            - name: postgresql
+              containerPort: {{ .Values.database.postgresql.service.port }}
+          env:
+            - name: POSTGRESQL_USERNAME
+              value: {{ $auth.username | quote }}
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $existingSecret.name | default $fullname }}
+                  key: {{ $existingSecret.keys.password | default "password" }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ $auth.database | quote }}
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+          resources:
+            {{- toYaml .Values.database.postgresql.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - '-U'
+                - {{ $auth.username | quote }}
+                - '-d'
+                - {{ $auth.database | quote }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - '-U'
+                - {{ $auth.username | quote }}
+                - '-d'
+                - {{ $auth.database | quote }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: data
+          {{- if .Values.database.postgresql.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

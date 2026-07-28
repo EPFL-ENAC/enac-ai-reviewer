@@ -27,11 +27,50 @@ CI/CD follows the same pattern as [co2-calculator](https://github.com/EPFL-ENAC/
 Not yet done, and blocking a real deployment:
 - No GitHub App has been created in the EPFL-ENAC org yet (webhook URL, permissions, and `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY`/`GITHUB_WEBHOOK_SECRET` all depend on that).
 - No real `LLM_API_KEY` for the RCP AIaS endpoint has been provisioned.
-- `helm/values.yaml`'s `existingSecret.name` fields and `database.existingSecret.name` are placeholders — real Secrets need to exist in the target namespace before first install (same `existingSecret` pattern as co2-calculator).
-- The `ORG: enac-it` input in `deploy.yml` and the matching `helm/values.yaml` `image.repository` are a reasonable guess at the ghcr.io namespace, not a confirmed team convention — adjust both together if wrong.
+- The `ORG: epfl-enac` input in `deploy.yml` and the matching `helm/values.yaml` `image.repository` (`ghcr.io/epfl-enac/epfl-enac/enac-ai-reviewer`) are configured for the EPFL-ENAC GitHub organization; adjust both together if the namespace convention changes.
 - `CD_TOKEN` must be available as a secret to this repo (org-level in EPFL-ENAC, or added per-repo) for the manifest-repo dispatch step to authenticate.
 - A folder for `enac-ai-reviewer` needs to be added to `enack8s-app-config` (or wherever it's GitOps-managed) so the dispatched `update-manifest` event has something to update.
 - Not yet exercised against a live GitHub App + real PR/issue traffic.
+
+### Database
+
+By default the Helm chart deploys an embedded PostgreSQL instance (`database.postgresql.enabled=true`). This is suitable for small deployments.
+
+For the embedded Postgres you can either provide the password directly in values (simple, but stores a secret in Git) or pull it from an existing Secret managed by Infisical/external-secrets:
+
+```yaml
+# Option A: password from values (not recommended for production)
+database:
+  postgresql:
+    enabled: true
+    auth:
+      password: "change-me"
+
+# Option B: password from an existing Secret (recommended)
+# The existing Secret must contain:
+#   - POSTGRES_PASSWORD: the raw password for the Postgres container
+#   - DATABASE_URL: the full connection string for the app
+database:
+  postgresql:
+    enabled: true
+  existingSecret:
+    name: "enac-ai-reviewer-secret"
+    keys:
+      password: POSTGRES_PASSWORD
+      url: DATABASE_URL
+```
+
+For larger or shared deployments, disable the embedded Postgres and provide your own Secret:
+
+```yaml
+database:
+  postgresql:
+    enabled: false
+  existingSecret:
+    name: "enac-ai-reviewer-db"
+    keys:
+      url: DATABASE_URL
+```
 
 ## Known dependency advisories
 

@@ -307,13 +307,12 @@ Only the worker gets this secret.
 
 The public webhook service does not need the LLM token.
 
-### Repository allowlist
+### Organization allowlist
 
 Use a simple env/config allowlist:
 
-```yaml
-allowed_repositories:
-  - EPFL-ENAC/co2-calculator
+```text
+ALLOWED_ORGANIZATIONS=EPFL-ENAC
 ```
 
 Ignore everything else.
@@ -398,7 +397,7 @@ LLM_BASE_URL
 LLM_API_KEY
 LLM_MODEL
 DATABASE_URL
-ALLOWED_REPOSITORIES
+ALLOWED_ORGANIZATIONS
 ```
 
 Do not build repo-level YAML config yet.
@@ -447,14 +446,15 @@ Needs:
 ```text
 GITHUB_WEBHOOK_SECRET
 DATABASE_URL
-ALLOWED_REPOSITORIES
+ALLOWED_ORGANIZATIONS
+GITHUB_APP_ID
+GITHUB_PRIVATE_KEY
 ```
 
 Does not need:
 
 ```text
 LLM_API_KEY
-GITHUB_PRIVATE_KEY
 ```
 
 ### `ai-review-worker`
@@ -473,7 +473,7 @@ LLM_MODEL
 Network:
 
 ```text
-web    → Postgres only
+web    → Postgres, GitHub API
 worker → Postgres, GitHub API, LLM gateway
 ```
 

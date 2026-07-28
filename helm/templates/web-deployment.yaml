@@ -5,6 +5,8 @@ metadata:
   name: {{ include "enac-ai-reviewer.fullname" . }}-web
   labels:
     {{- include "enac-ai-reviewer.componentLabels" (dict "ctx" . "component" "web") | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   revisionHistoryLimit: 2
 
@@ -65,6 +67,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "enac-ai-reviewer.webSecretName" . }}
                   key: {{ .Values.web.existingSecret.keys.githubWebhookSecretKey | default "GITHUB_WEBHOOK_SECRET" }}
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.githubAppIdKey | default "GITHUB_APP_ID" }}
+            - name: GITHUB_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.githubPrivateKeyKey | default "GITHUB_PRIVATE_KEY" }}
           livenessProbe:
             {{- toYaml .Values.web.livenessProbe | nindent 12 }}
           readinessProbe:

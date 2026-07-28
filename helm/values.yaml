@@ -28,12 +28,13 @@ web:
     targetPort: 3000
     annotations: {}
 
-  # GITHUB_BOT_LOGIN is not sensitive (a public GitHub username, PRD §10);
-  # ALLOWED_REPOSITORIES is grouped here rather than in a secret for the
-  # same reason (PRD §17 groups it with the web pod's other config).
+  # GITHUB_BOT_LOGIN and ALLOWED_ORGANIZATIONS are not sensitive (public
+  # GitHub usernames / org logins) so they are grouped here rather than in
+  # a Secret. ALLOWED_ORGANIZATIONS is a comma-separated list of GitHub org
+  # logins (e.g. "EPFL-ENAC"), matching src/domain/config.ts.
   env:
     GITHUB_BOT_LOGIN: "enac-ai-reviewer"
-    ALLOWED_REPOSITORIES: "EPFL-ENAC/co2-calculator"
+    ALLOWED_ORGANIZATIONS: "EPFL-ENAC"
 
   podAnnotations: {}
   podSecurityContext:
@@ -85,17 +86,23 @@ web:
   tolerations: []
   affinity: {}
 
-  # Web must NEVER see GITHUB_PRIVATE_KEY or LLM_API_KEY (PRD §17) — only the
-  # keys below are wired into the web Deployment's env.
+  # The web process validates webhooks and also checks that the triggering
+  # actor is a member of an allowed organization, which requires the GitHub
+  # App's credentials (see src/web/github-webhook.ts). LLM_API_KEY is still
+  # never given to the web pod.
   existingSecret:
     enabled: true
     name: "" # REQUIRED when enabled=true: name of the pre-existing Secret
     keys:
       githubWebhookSecretKey: GITHUB_WEBHOOK_SECRET
+      githubAppIdKey: GITHUB_APP_ID
+      githubPrivateKeyKey: GITHUB_PRIVATE_KEY
 
   # Chart-managed fallback when existingSecret.enabled=false (e.g. local/dev).
   secrets:
     GITHUB_WEBHOOK_SECRET: ""
+    GITHUB_APP_ID: ""
+    GITHUB_PRIVATE_KEY: ""
 
 worker:
   enabled: true
@@ -162,15 +169,51 @@ worker:
     LLM_API_KEY: ""
 
 # -----------------------------------------------------------------------------
-# Database: external PostgreSQL (managed separately), shared by web, worker,
-# and the migration job. Env var name matches src/domain/config.ts exactly
-# (DATABASE_URL), unlike the secret key name which is just a label.
+# Database: shared by web, worker, and the migration job. Env var name matches
+# src/domain/config.ts exactly (DATABASE_URL).
+# Either use the embedded Postgres (recommended for small deployments) or
+# provide your own pre-existing Secret with a DATABASE_URL key.
 # -----------------------------------------------------------------------------
 database:
+  # Embedded PostgreSQL for small / self-contained deployments.
+  postgresql:
+    enabled: true
+    image:
+      repository: bitnamilegacy/postgresql
+      tag: "17.5.0"
+      pullPolicy: IfNotPresent
+    auth:
+      username: enac_ai
+      database: enac_ai_reviewer
+      # Plain-text password (simple, but not recommended for GitOps).
+      # Only used when postgresql.enabled=true and existingSecret.name is empty.
+      password: ""
+    persistence:
+      enabled: true
+      size: 5Gi
+      # Leave empty to use the cluster default storage class.
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    service:
+      port: 5432
+
+  # Pre-existing Secret that contains the database credentials.
+  # When postgresql.enabled=true and this name is set, the chart expects the
+  # Secret to contain both:
+  #   - a key matching keys.password (for the Postgres container)
+  #   - a key matching keys.url      (for the app / migration job)
+  # When postgresql.enabled=false, only keys.url is required.
   existingSecret:
-    name: "enac-ai-reviewer-db"
+    name: ""
     keys:
       url: DATABASE_URL
+      password: POSTGRES_PASSWORD
   waitForPostgres:
     enabled: true
     image:
