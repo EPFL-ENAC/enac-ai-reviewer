@@ -144,12 +144,16 @@ export async function runJob(ctx: WorkerContext, job: ReviewJob): Promise<void> 
 
   switch (job.type) {
     case 'issue_triage':
+      ctx.logger.info({ jobId: job.id, repository: job.repositoryFullName, issueNumber: job.issueNumber }, 'Running issue triage job');
       return runIssueTriage(ctx, job, owner, repo);
     case 'change_request_explain':
+      ctx.logger.info({ jobId: job.id, repository: job.repositoryFullName, changeRequestNumber: job.changeRequestNumber }, 'Running change request explain job');
       return runChangeRequestExplain(ctx, job, owner, repo);
     case 'change_request_review':
+      ctx.logger.info({ jobId: job.id, repository: job.repositoryFullName, changeRequestNumber: job.changeRequestNumber }, 'Running change request review job');
       return runChangeRequestReview(ctx, job, owner, repo);
     case 'review_thread_reply':
+      ctx.logger.info({ jobId: job.id, repository: job.repositoryFullName, changeRequestNumber: job.changeRequestNumber }, 'Running review thread reply job');
       throw new Error(`No handler yet for job type "${job.type}"`);
   }
 }
