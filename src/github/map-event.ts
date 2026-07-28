@@ -7,6 +7,7 @@ export interface MappedTrigger {
   issueNumber?: number;
   changeRequestNumber?: number;
   headSha?: string;
+  commentId?: number;
   triggerActor: string;
   dedupeKey: string;
   payload: unknown;
@@ -63,6 +64,7 @@ function issueCommentTrigger(botLogin: string, deliveryId: string, payload: Issu
     repositoryFullName,
     issueNumber: isChangeRequest ? undefined : number,
     changeRequestNumber: isChangeRequest ? number : undefined,
+    commentId: payload.comment.id,
     triggerActor: actor,
     dedupeKey: `github:${repositoryFullName}:${jobType}:${number}:comment-${payload.comment.id}`,
     payload,

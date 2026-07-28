@@ -37,7 +37,18 @@ function repository(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createMockGithubApp(opts: { members: Set<string>; installationStatus?: number }): App {
+interface ReactionCall {
+  route: string;
+  params: Record<string, unknown>;
+}
+
+let reactionCalls: ReactionCall[] = [];
+
+function resetReactionCalls(): void {
+  reactionCalls = [];
+}
+
+function createMockGithubApp(opts: { members: Set<string>; installationStatus?: number; reactionStatus?: number }): App {
   return {
     octokit: {
       request: async (route: string, _params: Record<string, unknown>) => {
@@ -62,6 +73,18 @@ function createMockGithubApp(opts: { members: Set<string>; installationStatus?: 
           const err = new Error('Not Found') as Error & { status: number };
           err.status = 404;
           throw err;
+        }
+        if (
+          route === 'POST /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions' ||
+          route === 'POST /repos/{owner}/{repo}/issues/{issue_number}/reactions'
+        ) {
+          if (opts.reactionStatus != null) {
+            const err = new Error('Reaction failed') as Error & { status: number };
+            err.status = opts.reactionStatus;
+            throw err;
+          }
+          reactionCalls.push({ route, params });
+          return { data: { id: 1 } };
         }
         throw new Error(`Unexpected installation route: ${route}`);
       },
@@ -103,6 +126,7 @@ function issueCommentPayload(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   resetInstallationIdCache();
+  resetReactionCalls();
   app = buildApp(sql, config, mockGithubApp);
   await sql`truncate llm_usage, review_jobs, webhook_deliveries`;
 });
@@ -129,6 +153,58 @@ describe('POST /webhooks/github', () => {
     expect(rows[0]?.type).toBe('issue_triage');
     expect(rows[0]?.status).toBe('queued');
     expect(rows[0]?.issue_number).toBe(42);
+  });
+
+  it('adds a thumbs-up reaction to the comment that invoked the bot', async () => {
+    await postWebhook({ event: 'issue_comment', deliveryId: 'd1', payload: issueCommentPayload() });
+
+    expect(reactionCalls).toHaveLength(1);
+    expect(reactionCalls[0]?.route).toBe('POST /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions');
+    expect(reactionCalls[0]?.params).toMatchObject({
+      owner: ALLOWED_ORG,
+      repo: 'co2-calculator',
+      comment_id: 1,
+      content: '+1',
+    });
+  });
+
+  it('adds a thumbs-up reaction to the issue when invoked without a comment', async () => {
+    const payload = {
+      action: 'labeled',
+      label: { name: 'ai-review' },
+      sender: { login: 'guilbep' },
+      repository: repository(),
+      pull_request: { number: 7, head: { sha: 'abc123' } },
+    };
+    await postWebhook({ event: 'pull_request', deliveryId: 'd1', payload });
+
+    expect(reactionCalls).toHaveLength(1);
+    expect(reactionCalls[0]?.route).toBe('POST /repos/{owner}/{repo}/issues/{issue_number}/reactions');
+    expect(reactionCalls[0]?.params).toMatchObject({
+      owner: ALLOWED_ORG,
+      repo: 'co2-calculator',
+      issue_number: 7,
+      content: '+1',
+    });
+  });
+
+  it('still enqueues the job when the acknowledgment reaction fails', async () => {
+    const failingApp = buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), reactionStatus: 500 }));
+    const res = await failingApp.inject({
+      method: 'POST',
+      url: '/webhooks/github',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-event': 'issue_comment',
+        'x-github-delivery': 'd1',
+        'x-hub-signature-256': sign(JSON.stringify(issueCommentPayload())),
+      },
+      payload: JSON.stringify(issueCommentPayload()),
+    });
+    expect(res.statusCode).toBe(202);
+
+    const rows = await sql`select count(*)::int as count from review_jobs`;
+    expect(rows[0]?.count).toBe(1);
   });
 
   it('does not create a duplicate job for a redelivered delivery id', async () => {

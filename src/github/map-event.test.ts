@@ -41,6 +41,7 @@ describe('mapWebhookEvent', () => {
     expect(trigger).not.toBeNull();
     expect(trigger?.triggerActor).toBe('alice');
     expect(trigger?.jobType).toBe('issue_triage');
+    expect(trigger?.commentId).toBe(1);
   });
 
   it('ignores an issue comment with a missing user login', () => {
