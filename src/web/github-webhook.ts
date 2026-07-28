@@ -5,6 +5,7 @@ import type { Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
 import { getInstallationOctokitForOrg, isOrgMember } from '../github/auth.js';
 import { mapWebhookEvent } from '../github/map-event.js';
+import { addAcknowledgmentReaction } from '../github/acknowledge.js';
 import { verifyWebhookSignature } from '../github/verify-webhook-signature.js';
 import { jobsCreatedTotal, webhookRejectedTotal, webhookReceivedTotal } from './metrics.js';
 
@@ -86,6 +87,21 @@ export function registerGithubWebhook(
           'trigger actor is not an organization member, ignoring webhook',
         );
         return reply.code(204).send();
+      }
+
+      try {
+        await addAcknowledgmentReaction(orgOctokit, trigger.repositoryFullName, {
+          commentId: trigger.commentId,
+          issueNumber: trigger.issueNumber,
+          changeRequestNumber: trigger.changeRequestNumber,
+        });
+        request.log.info(
+          { repositoryFullName, commentId: trigger.commentId, issueNumber: trigger.issueNumber, changeRequestNumber: trigger.changeRequestNumber },
+          'acknowledgment reaction added',
+        );
+      } catch (err) {
+        const reactionMessage = err instanceof Error ? err.message : String(err);
+        request.log.warn({ err: reactionMessage, repositoryFullName }, 'failed to add acknowledgment reaction');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
