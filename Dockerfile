@@ -17,6 +17,10 @@ COPY --from=build /app/dist ./dist
 # Same relative path as the source tree so `npm run migrate` (which passes
 # `-m src/db/migrations`) resolves identically in dev and in this image.
 COPY --from=build /app/src/db/migrations ./src/db/migrations
+# The Helm chart enforces runAsNonRoot; the node image defaults to root.
+# Make /app owned by the bundled node user (uid 1000) and switch to it.
+RUN chown -R node:node /app
+USER node
 
 ENTRYPOINT ["node", "dist/entrypoint.js"]
 CMD ["web"]
