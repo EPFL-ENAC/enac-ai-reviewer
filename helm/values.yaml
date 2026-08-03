@@ -136,10 +136,10 @@ worker:
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 512Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 2Gi
 
   # Exec probes on a heartbeat file the worker loop touches every poll tick —
   # proves the poll loop is actually making progress, not just that the
