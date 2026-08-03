@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createPool, type Sql } from './pool.js';
-import { claimJob, completeJob, enqueueJob, failJob, insertDelivery, killJob } from './jobs.js';
+import { claimJob, completeJob, enqueueJob, failJob, insertDelivery, killJob, requeueStaleRunningJobs } from './jobs.js';
 import type { NewReviewJob } from '../domain/types.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -127,5 +127,31 @@ describe('completeJob / failJob', () => {
     expect(rows[0]?.status).toBe('dead');
     expect(rows[0]?.error_message).toBe('permanent auth failure');
     expect(rows[0]?.attempts).toBe(1);
+  });
+});
+
+describe('requeueStaleRunningJobs', () => {
+  it('re-queues running jobs older than the threshold', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+    await claimJob(sql);
+
+    // Simulate the job having been started 15 minutes ago.
+    await sql`update review_jobs set started_at = now() - interval '15 minutes' where id = ${created!.id}`;
+
+    const requeued = await requeueStaleRunningJobs(sql, 10);
+    expect(requeued).toBe(1);
+
+    const rows = await sql`select status, started_at, error_message from review_jobs where id = ${created!.id}`;
+    expect(rows[0]?.status).toBe('queued');
+    expect(rows[0]?.started_at).toBeNull();
+    expect(rows[0]?.error_message).toBe('requeued after worker restart');
+  });
+
+  it('does not re-queues recently started running jobs', async () => {
+    await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+    await claimJob(sql);
+
+    const requeued = await requeueStaleRunningJobs(sql, 10);
+    expect(requeued).toBe(0);
   });
 });

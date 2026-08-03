@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import pino from 'pino';
-import { claimJob, completeJob, failJob, killJob } from '../db/jobs.js';
+import { claimJob, completeJob, failJob, killJob, requeueStaleRunningJobs } from '../db/jobs.js';
 import { createPool } from '../db/pool.js';
 import { loadWorkerConfig } from '../domain/config.js';
 import { createGithubApp } from '../github/auth.js';
@@ -10,6 +10,8 @@ import { runJob } from './run-job.js';
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_JITTER_MS = 500;
+const HEARTBEAT_INTERVAL_MS = 5000;
+const STALE_JOB_MAX_AGE_MINUTES = 10;
 const HEARTBEAT_FILE = process.env.WORKER_HEARTBEAT_FILE ?? '/tmp/worker-heartbeat';
 
 const config = loadWorkerConfig();
@@ -19,6 +21,7 @@ const llmModel = createLlmModel(config.LLM_BASE_URL, config.LLM_API_KEY, config.
 const logger = pino();
 
 let shuttingDown = false;
+let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,8 +36,6 @@ async function touchHeartbeat(): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  await touchHeartbeat();
-
   const job = await claimJob(sql);
   if (!job) return;
 
@@ -67,14 +68,35 @@ async function loop(): Promise<void> {
   }
 }
 
-async function shutdown(): Promise<void> {
-  logger.info('shutting down worker');
+async function shutdown(reason: string): Promise<void> {
+  logger.info('shutting down worker: %s', reason);
   shuttingDown = true;
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+  }
   await sql.end();
   process.exit(0);
 }
 
-process.on('SIGTERM', () => void shutdown());
-process.on('SIGINT', () => void shutdown());
+process.on('SIGTERM', () => void shutdown("SIGTERM received"));
+process.on('SIGINT', () => void shutdown("SIGINT received"));
+process.on('unhandledRejection', (err) => {
+  logger.error({ err }, 'unhandled rejection in worker');
+});
 
-void loop();
+async function start(): Promise<void> {
+  // Keep the heartbeat file fresh even when a single job (e.g. an LLM call)
+  // blocks the poll loop for longer than the liveness-probe threshold.
+  heartbeatInterval = setInterval(() => void touchHeartbeat(), HEARTBEAT_INTERVAL_MS);
+
+  // If a previous worker died mid-job, those rows are still 'running'.
+  // Re-queue them so work is not lost after a pod restart.
+  const requeuedCount = await requeueStaleRunningJobs(sql, STALE_JOB_MAX_AGE_MINUTES);
+  if (requeuedCount > 0) {
+    logger.info({ requeuedCount }, 'requeued stale running jobs after worker startup');
+  }
+
+  void loop();
+}
+
+void start();
