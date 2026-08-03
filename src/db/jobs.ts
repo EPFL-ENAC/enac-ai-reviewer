@@ -129,6 +129,20 @@ export async function killJob(sql: Sql, id: string, errorMessage: string): Promi
   `;
 }
 
+/** Re-queues jobs that are still marked running but were started so long ago that
+ * the previous worker must have died (e.g. OOMKilled or liveness-probe restart).
+ * This prevents jobs from being stranded when a worker pod restarts mid-job. */
+export async function requeueStaleRunningJobs(sql: Sql, maxAgeMinutes: number): Promise<number> {
+  const result = await sql`
+    update review_jobs
+    set status = 'queued', started_at = null, error_message = 'requeued after worker restart'
+    where status = 'running'
+      and started_at < now() - ${maxAgeMinutes} * interval '1 minute'
+    returning id
+  `;
+  return result.length;
+}
+
 export async function recordLlmUsage(
   sql: Sql,
   usage: { jobId: string; model: string; inputTokens: number; outputTokens: number },
