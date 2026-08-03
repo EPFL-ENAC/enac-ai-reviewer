@@ -68,8 +68,8 @@ async function loop(): Promise<void> {
   }
 }
 
-async function shutdown(): Promise<void> {
-  logger.info('shutting down worker');
+async function shutdown(reason: string): Promise<void> {
+  logger.info('shutting down worker: %s', reason);
   shuttingDown = true;
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
@@ -78,8 +78,8 @@ async function shutdown(): Promise<void> {
   process.exit(0);
 }
 
-process.on('SIGTERM', () => void shutdown());
-process.on('SIGINT', () => void shutdown());
+process.on('SIGTERM', () => void shutdown("SIGTERM received"));
+process.on('SIGINT', () => void shutdown("SIGINT received"));
 process.on('unhandledRejection', (err) => {
   logger.error({ err }, 'unhandled rejection in worker');
 });
