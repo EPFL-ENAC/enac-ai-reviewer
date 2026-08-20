@@ -92,6 +92,15 @@ function layout(title: string, body: string, refreshUrl?: string): string {
     .count:hover { background: var(--epfl-gray-100); }
     .count.active { background: var(--epfl-red); border-color: var(--epfl-red); color: var(--epfl-white); }
     .pagination { margin-top: 1rem; display: flex; gap: 1rem; align-items: center; }
+    .actions { display: flex; gap: 0.5rem; }
+    .action-form { margin: 0; }
+    .btn { display: inline-block; border: 1px solid var(--epfl-red); background: var(--epfl-white); color: var(--epfl-red); padding: 0.25rem 0.75rem; border-radius: 2px; cursor: pointer; font-size: 0.875rem; font-weight: 700; text-transform: uppercase; font-family: Arial, Helvetica, sans-serif; }
+    .btn:hover { background: var(--epfl-red); color: var(--epfl-white); }
+    .btn-primary { background: var(--epfl-red); color: var(--epfl-white); }
+    .btn-primary:hover { background: #cc0000; border-color: #cc0000; }
+    .btn-secondary { border-color: var(--epfl-gray-500); color: var(--epfl-black); }
+    .btn-secondary:hover { background: var(--epfl-gray-100); color: var(--epfl-black); }
+    .action-bar { margin-bottom: 1rem; display: flex; gap: 0.5rem; }
     .trace { margin: 1rem 0; padding: 1rem; border: 1px solid var(--epfl-gray-200); border-radius: 2px; background: var(--epfl-white); }
     .trace-header { display: flex; gap: 0.75rem; align-items: baseline; margin-bottom: 0.75rem; }
     .trace-time { color: var(--epfl-gray-600); font-size: 0.875rem; }
@@ -111,6 +120,25 @@ function layout(title: string, body: string, refreshUrl?: string): string {
   </div>
 </body>
 </html>`;
+}
+
+function renderActions(job: ReviewJob, basePath: string): string {
+  const forms: string[] = [];
+  if (job.status !== 'dead') {
+    forms.push(
+      `<form method="POST" action="${basePath}/${job.id}/cancel" class="action-form">` +
+        `<button type="submit" class="btn btn-secondary">Cancel</button>` +
+      `</form>`,
+    );
+  }
+  if (job.status === 'dead' || job.status === 'failed') {
+    forms.push(
+      `<form method="POST" action="${basePath}/${job.id}/retry" class="action-form">` +
+        `<button type="submit" class="btn btn-primary">Retry</button>` +
+      `</form>`,
+    );
+  }
+  return `<div class="actions">${forms.join('')}</div>`;
 }
 
 export function renderJobsList(opts: {
@@ -151,6 +179,7 @@ export function renderJobsList(opts: {
         <td>${escapeHtml(job.triggerActor)}</td>
         <td>${formatDate(job.createdAt)}</td>
         <td>${job.attempts}/${job.maxAttempts}</td>
+        <td>${renderActions(job, opts.basePath)}</td>
       </tr>`;
     })
     .join('');
@@ -181,10 +210,11 @@ export function renderJobsList(opts: {
           <th>Actor</th>
           <th>Created</th>
           <th>Attempts</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        ${rows || '<tr><td colspan="8" class="empty">No jobs found.</td></tr>'}
+        ${rows || '<tr><td colspan="9" class="empty">No jobs found.</td></tr>'}
       </tbody>
     </table>
     <div class="pagination">
@@ -237,6 +267,9 @@ export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; base
   const body = `
     <a href="${opts.basePath}" class="back">← Back to jobs</a>
     <h1>Job ${job.id.slice(0, 8)}</h1>
+    <div class="action-bar">
+      ${renderActions(job, opts.basePath)}
+    </div>
     <table>
       <tbody>
         <tr><th>ID</th><td><code>${job.id}</code></td></tr>

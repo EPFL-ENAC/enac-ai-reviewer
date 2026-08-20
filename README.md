@@ -80,7 +80,7 @@ The web process exposes a read-only admin dashboard at `/admin`:
 - `/admin/jobs/:id` — job details and a chronological trace of every step (context fetched, LLM prompt/response, findings filtered, GitHub action taken, errors, etc.)
 - `/admin/api/jobs` and `/admin/api/jobs/:id` — JSON endpoints for the same data
 
-The UI auto-refreshes every 10 seconds.
+The UI auto-refreshes every 10 seconds. Each job can also be **cancelled** (marked dead) or **retried** (re-queued) directly from the list or detail page.
 
 ### Authentication
 

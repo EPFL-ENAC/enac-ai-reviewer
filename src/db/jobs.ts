@@ -252,3 +252,23 @@ export async function getJobTraces(sql: Sql, jobId: string): Promise<JobTrace[]>
   `;
   return rows.map(toJobTrace);
 }
+
+export async function cancelJob(sql: Sql, id: string): Promise<ReviewJob | null> {
+  const rows = await sql<ReviewJobRow[]>`
+    update review_jobs
+    set status = 'dead', finished_at = now(), error_message = 'cancelled by admin'
+    where id = ${id}
+    returning *
+  `;
+  return rows[0] ? toReviewJob(rows[0]) : null;
+}
+
+export async function retryJob(sql: Sql, id: string): Promise<ReviewJob | null> {
+  const rows = await sql<ReviewJobRow[]>`
+    update review_jobs
+    set status = 'queued', started_at = null, finished_at = null, error_message = null, attempts = 0
+    where id = ${id} and status in ('dead', 'failed')
+    returning *
+  `;
+  return rows[0] ? toReviewJob(rows[0]) : null;
+}

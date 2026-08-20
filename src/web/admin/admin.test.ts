@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { createPool, type Sql } from '../../db/pool.js';
 import type { WebConfig } from '../../domain/config.js';
 import { buildApp } from '../app.js';
-import { enqueueJob, insertJobTrace } from '../../db/jobs.js';
+import { enqueueJob, getJobById, getJobTraces, insertJobTrace, killJob } from '../../db/jobs.js';
 import type { NewReviewJob } from '../../domain/types.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -157,5 +157,57 @@ describe('Admin UI job detail', () => {
     const body = JSON.parse(res.payload);
     expect(body.job.id).toBe(created!.id);
     expect(body.traces).toHaveLength(1);
+  });
+});
+
+describe('Admin UI job actions', () => {
+  it('cancels a queued job and records an admin trace', async () => {
+    const created = await enqueueJob(sql, baseJob());
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/jobs/${created!.id}/cancel`,
+      headers: { ...authHeaders(), 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'submit=Cancel',
+    });
+    expect(res.statusCode).toBe(302);
+
+    const updated = await getJobById(sql, created!.id);
+    expect(updated?.status).toBe('dead');
+    expect(updated?.errorMessage).toBe('cancelled by admin');
+
+    const traces = await getJobTraces(sql, created!.id);
+    expect(traces.some((t) => t.type === 'admin_cancel')).toBe(true);
+  });
+
+  it('retries a dead job and records an admin trace', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await killJob(sql, created!.id, 'boom');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/jobs/${created!.id}/retry`,
+      headers: { ...authHeaders(), 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'submit=Retry',
+    });
+    expect(res.statusCode).toBe(302);
+
+    const updated = await getJobById(sql, created!.id);
+    expect(updated?.status).toBe('queued');
+
+    const traces = await getJobTraces(sql, created!.id);
+    expect(traces.some((t) => t.type === 'admin_retry')).toBe(true);
+  });
+
+  it('rejects action requests without auth', async () => {
+    const created = await enqueueJob(sql, baseJob());
+
+    const cancelRes = await app.inject({
+      method: 'POST',
+      url: `/admin/jobs/${created!.id}/cancel`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'submit=Cancel',
+    });
+    expect(cancelRes.statusCode).toBe(401);
   });
 });

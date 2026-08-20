@@ -20,6 +20,19 @@ export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyIn
     }
   });
 
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_request, body, done) => {
+    try {
+      const params = new URLSearchParams(body as string);
+      const result: Record<string, string> = {};
+      for (const [key, value] of params) {
+        result[key] = value;
+      }
+      done(null, result);
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   app.get('/healthz', async () => ({ status: 'ok' }));
 
   app.get('/metrics', async (_request, reply) => {

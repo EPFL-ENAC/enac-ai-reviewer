@@ -1,5 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { countJobs, countJobsByStatus, getJobById, getJobTraces, listJobs } from '../../db/jobs.js';
+import {
+  cancelJob,
+  countJobs,
+  countJobsByStatus,
+  getJobById,
+  getJobTraces,
+  insertJobTrace,
+  listJobs,
+  retryJob,
+} from '../../db/jobs.js';
 import type { Sql } from '../../db/pool.js';
 import type { WebConfig } from '../../domain/config.js';
 import { getAdminUser, isAdminUserAllowed, type AdminUser } from './auth.js';
@@ -113,5 +122,45 @@ export function registerAdminUi(app: FastifyInstance, sql: Sql, config: WebConfi
     }
 
     return { job, traces };
+  });
+
+  app.post(`${BASE_PATH}/:id/cancel`, async (request, reply) => {
+    const user = requireAdminUserHtml(request, reply, config);
+    if (!user) return;
+
+    const { id } = request.params as { id: string };
+    const job = await getJobById(sql, id);
+    if (!job) {
+      reply.code(404).type('text/html').send(`<!doctype html>
+<html><head><title>Not found</title></head><body><h1>Job not found</h1></body></html>`);
+      return;
+    }
+
+    await cancelJob(sql, id);
+    await insertJobTrace(sql, { jobId: id, type: 'admin_cancel', payload: { actor: user.user } });
+
+    const redirectTo = typeof request.headers.referer === 'string' ? request.headers.referer : BASE_PATH;
+    return reply.redirect(redirectTo);
+  });
+
+  app.post(`${BASE_PATH}/:id/retry`, async (request, reply) => {
+    const user = requireAdminUserHtml(request, reply, config);
+    if (!user) return;
+
+    const { id } = request.params as { id: string };
+    const job = await getJobById(sql, id);
+    if (!job) {
+      reply.code(404).type('text/html').send(`<!doctype html>
+<html><head><title>Not found</title></head><body><h1>Job not found</h1></body></html>`);
+      return;
+    }
+
+    const retried = await retryJob(sql, id);
+    if (retried) {
+      await insertJobTrace(sql, { jobId: id, type: 'admin_retry', payload: { actor: user.user } });
+    }
+
+    const redirectTo = typeof request.headers.referer === 'string' ? request.headers.referer : `${BASE_PATH}/${id}`;
+    return reply.redirect(redirectTo);
   });
 }
