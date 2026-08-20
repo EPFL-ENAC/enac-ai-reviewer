@@ -24,6 +24,12 @@ const config: WebConfig = {
   GITHUB_PRIVATE_KEY: 'dummy',
   PORT: 3000,
   allowedOrganizations: [ALLOWED_ORG],
+  ADMIN_AUTH_ENABLED: false,
+  ADMIN_AUTH_HEADER_USER: 'X-Auth-Request-User',
+  ADMIN_AUTH_HEADER_EMAIL: undefined,
+  ADMIN_AUTH_USERS: '',
+  TRUST_PROXY: false,
+  adminAuthUsers: [],
 };
 
 const sql: Sql = createPool(databaseUrl);
@@ -128,7 +134,7 @@ beforeEach(async () => {
   resetInstallationIdCache();
   resetReactionCalls();
   app = buildApp(sql, config, mockGithubApp);
-  await sql`truncate llm_usage, review_jobs, webhook_deliveries`;
+  await sql`truncate job_traces, llm_usage, review_jobs, webhook_deliveries`;
 });
 
 afterAll(async () => {

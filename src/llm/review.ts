@@ -27,6 +27,7 @@ export interface ReviewInput {
 
 export interface ReviewOutcome {
   result: ReviewResult;
+  prompt: string;
   inputTokens: number;
   outputTokens: number;
 }
@@ -60,6 +61,7 @@ export async function generateReview(model: LlmModel, input: ReviewInput): Promi
 
   return {
     result: object,
+    prompt: buildPrompt(input),
     inputTokens: usage.promptTokens,
     outputTokens: usage.completionTokens,
   };

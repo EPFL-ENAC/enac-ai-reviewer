@@ -20,6 +20,7 @@ export interface TriageInput {
 
 export interface TriageOutcome {
   result: TriageResult;
+  prompt: string;
   inputTokens: number;
   outputTokens: number;
 }
@@ -55,6 +56,7 @@ export async function generateTriage(model: LlmModel, input: TriageInput): Promi
 
   return {
     result: object,
+    prompt: buildPrompt(input),
     inputTokens: usage.promptTokens,
     outputTokens: usage.completionTokens,
   };

@@ -17,6 +17,7 @@ export interface ExplainInput {
 
 export interface ExplainOutcome {
   result: ExplainResult;
+  prompt: string;
   inputTokens: number;
   outputTokens: number;
 }
@@ -44,6 +45,7 @@ export async function generateExplain(model: LlmModel, input: ExplainInput): Pro
 
   return {
     result: object,
+    prompt: buildPrompt(input),
     inputTokens: usage.promptTokens,
     outputTokens: usage.completionTokens,
   };

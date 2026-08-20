@@ -72,6 +72,31 @@ database:
       url: DATABASE_URL
 ```
 
+## Admin UI
+
+The web process exposes a read-only admin dashboard at `/admin`:
+
+- `/admin/jobs` — list of all review jobs with status filters and pagination
+- `/admin/jobs/:id` — job details and a chronological trace of every step (context fetched, LLM prompt/response, findings filtered, GitHub action taken, errors, etc.)
+- `/admin/api/jobs` and `/admin/api/jobs/:id` — JSON endpoints for the same data
+
+The UI auto-refreshes every 10 seconds.
+
+### Authentication
+
+The admin UI is meant to be placed behind an organisation authentication proxy (e.g., Keycloak or OAuth2 Proxy). It reads the authenticated user from configurable HTTP headers:
+
+```text
+ADMIN_AUTH_ENABLED=true
+ADMIN_AUTH_HEADER_USER=X-Auth-Request-User
+ADMIN_AUTH_HEADER_EMAIL=X-Auth-Request-Email
+ADMIN_AUTH_USERS=              # optional comma-separated allowlist
+TRUST_PROXY=true               # required when running behind a reverse proxy
+```
+
+If the configured user header is missing, the admin routes return `401`.
+For local development without a proxy, set `ADMIN_AUTH_ENABLED=false`.
+
 ## Known dependency advisories
 
 `npm audit` flags two things not fixed here, both investigated rather than blind-force-upgraded:

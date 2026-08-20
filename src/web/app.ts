@@ -1,12 +1,13 @@
 import type { App } from '@octokit/app';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { registerAdminUi } from './admin/routes.js';
 import type { Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
 import { registerGithubWebhook } from './github-webhook.js';
 import { registry } from './metrics.js';
 
 export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyInstance {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY });
 
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, rawBody, done) => {
     const buf = rawBody as Buffer;
@@ -27,6 +28,7 @@ export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyIn
   });
 
   registerGithubWebhook(app, sql, config, githubApp);
+  registerAdminUi(app, sql, config);
 
   return app;
 }
