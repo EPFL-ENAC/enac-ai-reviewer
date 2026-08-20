@@ -54,36 +54,61 @@ function layout(title: string, body: string, refreshUrl?: string): string {
   ${refresh}
   <title>${escapeHtml(title)}</title>
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 2rem; line-height: 1.5; }
-    h1, h2 { margin-top: 0; }
-    a { color: #0969da; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #d0d7de; }
-    th { font-weight: 600; background: #f6f8fa; }
-    tr:hover { background: #f6f8fa; }
-    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-    .status-queued { background: #fff8c5; color: #7a4d00; }
-    .status-running { background: #ddf4ff; color: #0a55a8; }
-    .status-done { background: #dafbe1; color: #106024; }
-    .status-dead { background: #ffebe9; color: #842326; }
-    .status-other { background: #f6f8fa; color: #57606a; }
+    :root {
+      --epfl-red: #ff0000;
+      --epfl-black: #212121;
+      --epfl-white: #ffffff;
+      --epfl-gray-100: #e6e6e6;
+      --epfl-gray-200: #d5d5d5;
+      --epfl-gray-300: #c1c1c1;
+      --epfl-gray-500: #8e8e8e;
+      --epfl-gray-600: #707070;
+      --epfl-leman: #00A79F;
+      --epfl-canard: #007480;
+    }
+    body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; line-height: 1.5; color: var(--epfl-black); background: var(--epfl-white); }
+    .topbar { background: var(--epfl-red); color: var(--epfl-white); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; }
+    .topbar-logo { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; text-decoration: none; color: var(--epfl-white); }
+    .topbar-title { font-size: 1rem; font-weight: 400; opacity: 0.95; }
+    .container { padding: 2rem; max-width: 1200px; margin: 0 auto; }
+    h1, h2 { margin-top: 0; color: var(--epfl-black); }
+    h1 { font-weight: 400; border-bottom: 2px solid var(--epfl-red); padding-bottom: 0.5rem; margin-bottom: 1rem; }
+    h2 { font-weight: 700; margin-top: 1.5rem; }
+    a { color: var(--epfl-canard); text-decoration: underline; }
+    a:hover { color: var(--epfl-leman); }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; border: 1px solid var(--epfl-gray-200); }
+    th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid var(--epfl-gray-200); }
+    th { font-weight: 700; background: var(--epfl-gray-100); }
+    tr:hover { background: #f5f5f5; }
+    code { font-family: monospace; background: var(--epfl-gray-100); padding: 0.125rem 0.25rem; border-radius: 2px; }
+    .badge { display: inline-block; padding: 0.25em 0.5em; border-radius: 2px; font-size: 0.875rem; font-weight: 700; text-transform: uppercase; }
+    .status-queued { background: var(--epfl-gray-100); color: var(--epfl-black); }
+    .status-running { background: var(--epfl-leman); color: var(--epfl-white); }
+    .status-done { background: var(--epfl-canard); color: var(--epfl-white); }
+    .status-dead { background: var(--epfl-red); color: var(--epfl-white); }
+    .status-other { background: var(--epfl-gray-300); color: var(--epfl-black); }
     .counts { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
-    .count { padding: 0.25rem 0.75rem; border-radius: 999px; background: #f6f8fa; border: 1px solid #d0d7de; }
-    .count.active { background: #ddf4ff; border-color: #79c0ff; }
+    .count { padding: 0.375rem 0.75rem; border-radius: 2px; background: var(--epfl-white); border: 1px solid var(--epfl-gray-200); color: var(--epfl-black); text-decoration: none; }
+    .count:hover { background: var(--epfl-gray-100); }
+    .count.active { background: var(--epfl-red); border-color: var(--epfl-red); color: var(--epfl-white); }
     .pagination { margin-top: 1rem; display: flex; gap: 1rem; align-items: center; }
-    .trace { margin: 1rem 0; padding: 1rem; border: 1px solid #d0d7de; border-radius: 0.5rem; }
+    .trace { margin: 1rem 0; padding: 1rem; border: 1px solid var(--epfl-gray-200); border-radius: 2px; background: var(--epfl-white); }
     .trace-header { display: flex; gap: 0.75rem; align-items: baseline; margin-bottom: 0.75rem; }
-    .trace-time { color: #57606a; font-size: 0.85rem; }
-    .trace-type { font-weight: 600; }
-    pre { background: #f6f8fa; padding: 1rem; border-radius: 0.375rem; overflow-x: auto; font-size: 0.875rem; }
+    .trace-time { color: var(--epfl-gray-600); font-size: 0.875rem; }
+    .trace-type { font-weight: 700; color: var(--epfl-red); text-transform: uppercase; font-size: 0.875rem; }
+    pre { background: #f5f5f5; padding: 1rem; border-radius: 2px; overflow-x: auto; font-size: 0.875rem; border: 1px solid var(--epfl-gray-100); }
     .back { margin-bottom: 1rem; display: inline-block; }
-    .empty { color: #57606a; font-style: italic; }
+    .empty { color: var(--epfl-gray-600); font-style: italic; }
   </style>
 </head>
 <body>
-  ${body}
+  <header class="topbar">
+    <a href="/admin" class="topbar-logo">EPFL</a>
+    <span class="topbar-title">AI Reviewer Admin</span>
+  </header>
+  <div class="container">
+    ${body}
+  </div>
 </body>
 </html>`;
 }
