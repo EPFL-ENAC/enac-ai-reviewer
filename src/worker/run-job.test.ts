@@ -13,6 +13,7 @@ const generateTriage = vi.fn();
 const generateExplain = vi.fn();
 const generateReview = vi.fn();
 const recordLlmUsage = vi.fn();
+const insertJobTrace = vi.fn();
 
 vi.mock('../github/auth.js', () => ({ getInstallationOctokitForRepo: (...args: unknown[]) => getInstallationOctokitForRepo(...args) }));
 vi.mock('../github/publish.js', () => ({
@@ -38,7 +39,10 @@ vi.mock('../llm/review.js', async () => {
   const actual = await vi.importActual<typeof import('../llm/review.js')>('../llm/review.js');
   return { ...actual, generateReview: (...args: unknown[]) => generateReview(...args) };
 });
-vi.mock('../db/jobs.js', () => ({ recordLlmUsage: (...args: unknown[]) => recordLlmUsage(...args) }));
+vi.mock('../db/jobs.js', () => ({
+  recordLlmUsage: (...args: unknown[]) => recordLlmUsage(...args),
+  insertJobTrace: (...args: unknown[]) => insertJobTrace(...args),
+}));
 
 const { runJob } = await import('./run-job.js');
 

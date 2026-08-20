@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import pino from 'pino';
-import { claimJob, completeJob, failJob, killJob, requeueStaleRunningJobs } from '../db/jobs.js';
+import { claimJob, completeJob, failJob, insertJobTrace, killJob, requeueStaleRunningJobs } from '../db/jobs.js';
 import { createPool } from '../db/pool.js';
 import { loadWorkerConfig } from '../domain/config.js';
 import { createGithubApp } from '../github/auth.js';
@@ -44,9 +44,11 @@ async function tick(): Promise<void> {
   try {
     await runJob({ sql, githubApp, config, logger, llmModel }, job);
     await completeJob(sql, job.id);
+    await insertJobTrace(sql, { jobId: job.id, type: 'job_completed' });
     logger.info({ jobId: job.id }, 'job completed');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    await insertJobTrace(sql, { jobId: job.id, type: 'job_failed', payload: { message, permanent: isPermanentGithubError(err) } });
     if (isPermanentGithubError(err)) {
       await killJob(sql, job.id, message);
       logger.error({ jobId: job.id, err: message }, 'job permanently failed');

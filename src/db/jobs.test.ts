@@ -1,6 +1,22 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createPool, type Sql } from './pool.js';
-import { claimJob, completeJob, enqueueJob, failJob, insertDelivery, killJob, requeueStaleRunningJobs } from './jobs.js';
+import {
+  cancelJob,
+  claimJob,
+  completeJob,
+  countJobs,
+  countJobsByStatus,
+  enqueueJob,
+  failJob,
+  getJobById,
+  getJobTraces,
+  insertDelivery,
+  insertJobTrace,
+  killJob,
+  listJobs,
+  requeueStaleRunningJobs,
+  retryJob,
+} from './jobs.js';
 import type { NewReviewJob } from '../domain/types.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -15,7 +31,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await sql`truncate llm_usage, review_jobs, webhook_deliveries`;
+  await sql`truncate job_traces, llm_usage, review_jobs, webhook_deliveries`;
 });
 
 function job(overrides: Partial<NewReviewJob> = {}): NewReviewJob {
@@ -153,5 +169,100 @@ describe('requeueStaleRunningJobs', () => {
 
     const requeued = await requeueStaleRunningJobs(sql, 10);
     expect(requeued).toBe(0);
+  });
+});
+
+describe('insertJobTrace / getJobTraces', () => {
+  it('records trace events for a job in chronological order', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+
+    await insertJobTrace(sql, { jobId: created!.id, type: 'job_started', payload: { step: 1 } });
+    await insertJobTrace(sql, { jobId: created!.id, type: 'llm_prompt', payload: { prompt: 'hello' } });
+
+    const traces = await getJobTraces(sql, created!.id);
+    expect(traces).toHaveLength(2);
+    expect(traces[0]?.type).toBe('job_started');
+    expect(traces[1]?.type).toBe('llm_prompt');
+    expect((traces[1]?.payload as { prompt: string }).prompt).toBe('hello');
+  });
+});
+
+describe('listJobs / countJobs / countJobsByStatus', () => {
+  it('returns jobs ordered by creation time', async () => {
+    const first = await enqueueJob(sql, job({ dedupeKey: 'k1', type: 'issue_triage' }));
+    const second = await enqueueJob(sql, job({ dedupeKey: 'k2', type: 'change_request_explain' }));
+
+    const jobs = await listJobs(sql, { limit: 10 });
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]?.id).toBe(second!.id);
+    expect(jobs[1]?.id).toBe(first!.id);
+
+    const total = await countJobs(sql);
+    expect(total).toBe(2);
+
+    const counts = await countJobsByStatus(sql);
+    expect(counts['queued']).toBe(2);
+  });
+
+  it('filters jobs by status', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+    await claimJob(sql);
+
+    const running = await listJobs(sql, { status: 'running' });
+    expect(running).toHaveLength(1);
+    expect(running[0]?.id).toBe(created!.id);
+
+    const queued = await listJobs(sql, { status: 'queued' });
+    expect(queued).toHaveLength(0);
+  });
+});
+
+describe('getJobById', () => {
+  it('returns a job by id or null when missing', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+
+    const found = await getJobById(sql, created!.id);
+    expect(found).not.toBeNull();
+    expect(found?.dedupeKey).toBe('k1');
+
+    const missing = await getJobById(sql, '00000000-0000-0000-0000-000000000000');
+    expect(missing).toBeNull();
+  });
+});
+
+describe('cancelJob', () => {
+  it('marks a job as dead with an admin cancellation message', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+    const cancelled = await cancelJob(sql, created!.id);
+
+    expect(cancelled).not.toBeNull();
+    expect(cancelled?.status).toBe('dead');
+    expect(cancelled?.errorMessage).toBe('cancelled by admin');
+    expect(cancelled?.finishedAt).not.toBeNull();
+  });
+});
+
+describe('retryJob', () => {
+  it('re-queues a dead job', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+    await killJob(sql, created!.id, 'boom');
+
+    const retried = await retryJob(sql, created!.id);
+    expect(retried).not.toBeNull();
+    expect(retried?.status).toBe('queued');
+    expect(retried?.attempts).toBe(0);
+    expect(retried?.errorMessage).toBeNull();
+    expect(retried?.startedAt).toBeNull();
+    expect(retried?.finishedAt).toBeNull();
+  });
+
+  it('does nothing for a job that is not dead or failed', async () => {
+    const created = await enqueueJob(sql, job({ dedupeKey: 'k1' }));
+
+    const retried = await retryJob(sql, created!.id);
+    expect(retried).toBeNull();
+
+    const stillQueued = await getJobById(sql, created!.id);
+    expect(stillQueued?.status).toBe('queued');
   });
 });

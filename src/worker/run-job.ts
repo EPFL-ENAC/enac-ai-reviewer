@@ -1,6 +1,6 @@
 import type { App } from '@octokit/app';
 import type { Logger } from 'pino';
-import { recordLlmUsage } from '../db/jobs.js';
+import { insertJobTrace, recordLlmUsage } from '../db/jobs.js';
 import type { Sql } from '../db/pool.js';
 import type { WorkerConfig } from '../domain/config.js';
 import type { ReviewJob } from '../domain/types.js';
@@ -31,6 +31,10 @@ export interface WorkerContext {
 const TRIAGE_COMMENT_MARKER = '### AI triage';
 const EXPLAIN_COMMENT_MARKER = '### AI summary';
 
+async function trace(sql: Sql, jobId: string, type: string, payload?: unknown): Promise<void> {
+  await insertJobTrace(sql, { jobId, type, payload });
+}
+
 /** Anti-spam: update our own prior comment carrying this marker instead of posting a new one every re-trigger. */
 async function postOrUpdateMarkedComment(
   ctx: WorkerContext,
@@ -58,6 +62,14 @@ async function runIssueTriage(ctx: WorkerContext, job: ReviewJob, owner: string,
   const target = { owner, repo, issueNumber: job.issueNumber };
 
   const context = await fetchIssueContext(octokit, target);
+  await trace(ctx.sql, job.id, 'context_fetched', {
+    source: 'issue',
+    title: context.title,
+    bodyLength: context.body.length,
+    labelCount: context.labels.length,
+    commentCount: context.comments.length,
+  });
+
   const outcome = await generateTriage(ctx.llmModel, {
     title: context.title,
     body: context.body,
@@ -65,7 +77,21 @@ async function runIssueTriage(ctx: WorkerContext, job: ReviewJob, owner: string,
     comments: context.comments,
   });
 
+  await trace(ctx.sql, job.id, 'llm_prompt', { model: ctx.config.LLM_MODEL, prompt: outcome.prompt });
+  await trace(ctx.sql, job.id, 'llm_response', {
+    model: ctx.config.LLM_MODEL,
+    result: outcome.result,
+    inputTokens: outcome.inputTokens,
+    outputTokens: outcome.outputTokens,
+  });
+
   await postOrUpdateMarkedComment(ctx, octokit, target, TRIAGE_COMMENT_MARKER, formatTriageComment(outcome.result));
+  await trace(ctx.sql, job.id, 'github_action', {
+    action: 'post_or_update_issue_comment',
+    owner,
+    repo,
+    issueNumber: job.issueNumber,
+  });
 
   await recordLlmUsage(ctx.sql, {
     jobId: job.id,
@@ -82,13 +108,34 @@ async function runChangeRequestExplain(ctx: WorkerContext, job: ReviewJob, owner
   const target = { owner, repo, issueNumber: job.changeRequestNumber };
 
   const context = await fetchChangeRequestContext(octokit, { owner, repo, number: job.changeRequestNumber });
+  await trace(ctx.sql, job.id, 'context_fetched', {
+    source: 'change_request',
+    title: context.title,
+    bodyLength: context.body.length,
+    diffLength: context.diff.length,
+  });
+
   const outcome = await generateExplain(ctx.llmModel, {
     title: context.title,
     body: context.body,
     diff: context.diff,
   });
 
+  await trace(ctx.sql, job.id, 'llm_prompt', { model: ctx.config.LLM_MODEL, prompt: outcome.prompt });
+  await trace(ctx.sql, job.id, 'llm_response', {
+    model: ctx.config.LLM_MODEL,
+    result: outcome.result,
+    inputTokens: outcome.inputTokens,
+    outputTokens: outcome.outputTokens,
+  });
+
   await postOrUpdateMarkedComment(ctx, octokit, target, EXPLAIN_COMMENT_MARKER, formatExplainComment(outcome.result));
+  await trace(ctx.sql, job.id, 'github_action', {
+    action: 'post_or_update_issue_comment',
+    owner,
+    repo,
+    issueNumber: job.changeRequestNumber,
+  });
 
   await recordLlmUsage(ctx.sql, {
     jobId: job.id,
@@ -105,12 +152,27 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
   const pullNumber = job.changeRequestNumber;
 
   const context = await fetchChangeRequestContext(octokit, { owner, repo, number: pullNumber });
+  await trace(ctx.sql, job.id, 'context_fetched', {
+    source: 'change_request',
+    title: context.title,
+    bodyLength: context.body.length,
+    diffLength: context.diff.length,
+  });
+
   const validAnchors = parseDiffAnchors(context.diff);
 
   const outcome = await generateReview(ctx.llmModel, {
     title: context.title,
     body: context.body,
     diff: context.diff,
+  });
+
+  await trace(ctx.sql, job.id, 'llm_prompt', { model: ctx.config.LLM_MODEL, prompt: outcome.prompt });
+  await trace(ctx.sql, job.id, 'llm_response', {
+    model: ctx.config.LLM_MODEL,
+    result: outcome.result,
+    inputTokens: outcome.inputTokens,
+    outputTokens: outcome.outputTokens,
   });
 
   const existingComments = await listReviewComments(octokit, { owner, repo, pullNumber });
@@ -121,6 +183,11 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
   );
 
   const selected = selectReviewFindings(outcome.result.findings, validAnchors, existingAnchors);
+  await trace(ctx.sql, job.id, 'findings_filtered', {
+    totalFindings: outcome.result.findings.length,
+    selected: selected.length,
+    filtered: outcome.result.findings.length - selected.length,
+  });
 
   await createPullRequestReview(octokit, {
     owner,
@@ -128,6 +195,13 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
     pullNumber,
     body: outcome.result.summary,
     comments: selected.map((f) => ({ path: f.path, line: f.line, side: f.side, body: f.body })),
+  });
+  await trace(ctx.sql, job.id, 'github_action', {
+    action: 'create_pull_request_review',
+    owner,
+    repo,
+    pullNumber,
+    commentCount: selected.length,
   });
 
   await recordLlmUsage(ctx.sql, {
@@ -141,6 +215,8 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
 export async function runJob(ctx: WorkerContext, job: ReviewJob): Promise<void> {
   const [owner, repo] = job.repositoryFullName.split('/');
   if (!owner || !repo) throw new Error(`Malformed repositoryFullName "${job.repositoryFullName}"`);
+
+  await trace(ctx.sql, job.id, 'job_started', { type: job.type, repositoryFullName: job.repositoryFullName });
 
   switch (job.type) {
     case 'issue_triage':

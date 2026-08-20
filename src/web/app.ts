@@ -1,12 +1,13 @@
 import type { App } from '@octokit/app';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { registerAdminUi } from './admin/routes.js';
 import type { Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
 import { registerGithubWebhook } from './github-webhook.js';
 import { registry } from './metrics.js';
 
 export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyInstance {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY });
 
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, rawBody, done) => {
     const buf = rawBody as Buffer;
@@ -14,6 +15,19 @@ export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyIn
     try {
       const json: unknown = buf.length ? JSON.parse(buf.toString('utf8')) : {};
       done(null, json);
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_request, body, done) => {
+    try {
+      const params = new URLSearchParams(body as string);
+      const result: Record<string, string> = {};
+      for (const [key, value] of params) {
+        result[key] = value;
+      }
+      done(null, result);
     } catch (err) {
       done(err as Error, undefined);
     }
@@ -27,6 +41,7 @@ export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyIn
   });
 
   registerGithubWebhook(app, sql, config, githubApp);
+  registerAdminUi(app, sql, config);
 
   return app;
 }

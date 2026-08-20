@@ -152,3 +152,123 @@ export async function recordLlmUsage(
     values (${usage.jobId}, ${usage.model}, ${usage.inputTokens}, ${usage.outputTokens})
   `;
 }
+
+export interface JobTrace {
+  id: string;
+  jobId: string;
+  type: string;
+  payload: unknown;
+  createdAt: Date;
+}
+
+interface JobTraceRow {
+  id: string;
+  job_id: string;
+  type: string;
+  payload: unknown;
+  created_at: Date;
+}
+
+function toJobTrace(row: JobTraceRow): JobTrace {
+  return {
+    id: row.id,
+    jobId: row.job_id,
+    type: row.type,
+    payload: row.payload,
+    createdAt: row.created_at,
+  };
+}
+
+export async function insertJobTrace(
+  sql: Sql,
+  trace: { jobId: string; type: string; payload?: unknown },
+): Promise<JobTrace> {
+  const payload = (trace.payload ?? {}) as import('postgres').JSONValue;
+  const rows = await sql<JobTraceRow[]>`
+    insert into job_traces (job_id, type, payload)
+    values (${trace.jobId}, ${trace.type}, ${sql.json(payload)})
+    returning *
+  `;
+  if (!rows[0]) throw new Error('Failed to insert job trace');
+  return toJobTrace(rows[0]);
+}
+
+export interface ListJobsOptions {
+  status?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function listJobs(sql: Sql, opts: ListJobsOptions = {}): Promise<ReviewJob[]> {
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  const rows = opts.status
+    ? await sql<ReviewJobRow[]>`
+        select * from review_jobs
+        where status = ${opts.status}
+        order by created_at desc
+        limit ${limit} offset ${offset}
+      `
+    : await sql<ReviewJobRow[]>`
+        select * from review_jobs
+        order by created_at desc
+        limit ${limit} offset ${offset}
+      `;
+  return rows.map(toReviewJob);
+}
+
+export async function countJobs(sql: Sql, opts: ListJobsOptions = {}): Promise<number> {
+  const rows = opts.status
+    ? await sql<{ count: number }[]>`
+        select count(*)::int as count from review_jobs where status = ${opts.status}
+      `
+    : await sql<{ count: number }[]>`
+        select count(*)::int as count from review_jobs
+      `;
+  return rows[0]?.count ?? 0;
+}
+
+export async function countJobsByStatus(sql: Sql): Promise<Record<string, number>> {
+  const rows = await sql<{ status: string; count: number }[]>`
+    select status, count(*)::int as count from review_jobs group by status
+  `;
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    counts[row.status] = row.count;
+  }
+  return counts;
+}
+
+export async function getJobById(sql: Sql, id: string): Promise<ReviewJob | null> {
+  const rows = await sql<ReviewJobRow[]>`
+    select * from review_jobs where id = ${id}
+  `;
+  return rows[0] ? toReviewJob(rows[0]) : null;
+}
+
+export async function getJobTraces(sql: Sql, jobId: string): Promise<JobTrace[]> {
+  const rows = await sql<JobTraceRow[]>`
+    select * from job_traces where job_id = ${jobId} order by created_at asc
+  `;
+  return rows.map(toJobTrace);
+}
+
+export async function cancelJob(sql: Sql, id: string): Promise<ReviewJob | null> {
+  const rows = await sql<ReviewJobRow[]>`
+    update review_jobs
+    set status = 'dead', finished_at = now(), error_message = 'cancelled by admin'
+    where id = ${id}
+    returning *
+  `;
+  return rows[0] ? toReviewJob(rows[0]) : null;
+}
+
+export async function retryJob(sql: Sql, id: string): Promise<ReviewJob | null> {
+  const rows = await sql<ReviewJobRow[]>`
+    update review_jobs
+    set status = 'queued', started_at = null, finished_at = null, error_message = null, attempts = 0
+    where id = ${id} and status in ('dead', 'failed')
+    returning *
+  `;
+  return rows[0] ? toReviewJob(rows[0]) : null;
+}
