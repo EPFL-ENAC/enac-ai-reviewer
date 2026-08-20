@@ -35,6 +35,14 @@ web:
   env:
     GITHUB_BOT_LOGIN: "enac-ai-reviewer"
     ALLOWED_ORGANIZATIONS: "EPFL-ENAC"
+    # The admin UI is served by the same web process. When it sits behind an
+    # authentication proxy (Keycloak/OAuth2 Proxy), the proxy passes the user
+    # in configurable HTTP headers. TRUST_PROXY must be "true" when the app is
+    # accessed through an ingress/reverse proxy.
+    ADMIN_AUTH_ENABLED: "false"
+    ADMIN_AUTH_HEADER_USER: "X-Auth-Request-User"
+    ADMIN_AUTH_HEADER_EMAIL: "X-Auth-Request-Email"
+    TRUST_PROXY: "true"
 
   podAnnotations: {}
   podSecurityContext:
@@ -254,6 +262,18 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
   host: "enac-ai-reviewer.epfl.ch" # TODO: replace with the real hostname once assigned
   tls: []
+  # The /admin UI is exposed through a separate Ingress so that authentication
+  # proxy annotations can be applied only to the admin path. The GitHub webhook
+  # path above must stay publicly reachable and unauthenticated.
+  admin:
+    enabled: true
+    path: /admin
+    pathType: Prefix
+    annotations: {}
+    # Example using an in-cluster OAuth2 Proxy:
+    # annotations:
+    #   nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.auth.svc.cluster.local/oauth2/auth"
+    #   nginx.ingress.kubernetes.io/auth-signin: "https://auth.example.com/oauth2/start?rd=$escaped_request_uri"
 
 serviceAccount:
   create: true

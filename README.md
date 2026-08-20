@@ -32,6 +32,24 @@ Not yet done, and blocking a real deployment:
 - A folder for `enac-ai-reviewer` needs to be added to `enack8s-app-config` (or wherever it's GitOps-managed) so the dispatched `update-manifest` event has something to update.
 - Not yet exercised against a live GitHub App + real PR/issue traffic.
 
+### Admin UI ingress
+
+The Helm chart exposes `/admin` through a separate Ingress (`ingress.admin`) so it can be protected by an authentication proxy, while `/webhooks/github` remains publicly reachable.
+
+In your environment-specific values (e.g. `enack8s-app-config`), set the auth proxy annotations:
+
+```yaml
+ingress:
+  host: "enac-ai-reviewer.epfl.ch"
+  admin:
+    enabled: true
+    annotations:
+      nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.auth.svc.cluster.local/oauth2/auth"
+      nginx.ingress.kubernetes.io/auth-signin: "https://auth.example.com/oauth2/start?rd=$escaped_request_uri"
+```
+
+The app expects the proxy to pass the authenticated user in `X-Auth-Request-User` (configurable via `web.env.ADMIN_AUTH_HEADER_USER`). `TRUST_PROXY` is enabled by default in the chart because the web pod is always accessed through an ingress/reverse proxy.
+
 ### Database
 
 By default the Helm chart deploys an embedded PostgreSQL instance (`database.postgresql.enabled=true`). This is suitable for small deployments.
