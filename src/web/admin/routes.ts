@@ -48,7 +48,7 @@ function parseListQuery(query: Record<string, unknown>): {
 } {
   const status = typeof query.status === 'string' ? query.status : undefined;
   const page = Math.max(1, parseInt(String(query.page ?? '1'), 10) || 1);
-  const pageSize = Math.min(200, Math.max(1, parseInt(String(query.pageSize ?? '50'), 10) || 50));
+  const pageSize = Math.min(200, Math.max(1, parseInt(String(query.pageSize ?? '20'), 10) || 20));
   return { status, page, pageSize };
 }
 
