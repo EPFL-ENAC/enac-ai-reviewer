@@ -14,20 +14,42 @@ function parseEnvBoolean(value: unknown, defaultValue: boolean): boolean {
 const envBoolean = (defaultValue: boolean) =>
   z.union([z.boolean(), z.string()]).default(defaultValue).transform((value) => parseEnvBoolean(value, defaultValue));
 
-const webSchema = z.object({
-  GITHUB_WEBHOOK_SECRET: z.string().min(1),
-  DATABASE_URL: z.string().min(1),
-  ALLOWED_ORGANIZATIONS: z.string().min(1),
-  GITHUB_BOT_LOGIN: z.string().min(1),
-  GITHUB_APP_ID: z.string().min(1),
-  GITHUB_PRIVATE_KEY: z.string().min(1),
-  PORT: z.coerce.number().int().positive().default(3000),
-  ADMIN_AUTH_ENABLED: envBoolean(true),
-  ADMIN_AUTH_HEADER_USER: z.string().default('X-Auth-Request-User'),
-  ADMIN_AUTH_HEADER_EMAIL: z.string().optional(),
-  ADMIN_AUTH_USERS: z.string().optional(),
-  TRUST_PROXY: envBoolean(false),
-});
+const webSchema = z
+  .object({
+    GITHUB_WEBHOOK_SECRET: z.string().min(1),
+    DATABASE_URL: z.string().min(1),
+    ALLOWED_ORGANIZATIONS: z.string().min(1),
+    GITHUB_BOT_LOGIN: z.string().min(1),
+    GITHUB_APP_ID: z.string().min(1),
+    GITHUB_PRIVATE_KEY: z.string().min(1),
+    PORT: z.coerce.number().int().positive().default(3000),
+    ADMIN_AUTH_ENABLED: envBoolean(true),
+    ADMIN_AUTH_MODE: z.enum(['proxy', 'keycloak']).default('proxy'),
+    ADMIN_AUTH_HEADER_USER: z.string().default('X-Auth-Request-User'),
+    ADMIN_AUTH_HEADER_EMAIL: z.string().optional(),
+    ADMIN_AUTH_USERS: z.string().optional(),
+    KEYCLOAK_URL: z.string().url().optional(),
+    KEYCLOAK_REALM: z.string().optional(),
+    KEYCLOAK_CLIENT_ID: z.string().optional(),
+    KEYCLOAK_CLIENT_SECRET: z.string().optional(),
+    KEYCLOAK_REDIRECT_URI: z.string().optional(),
+    SESSION_SECRET: z.string().min(32).optional(),
+    TRUST_PROXY: envBoolean(false),
+  })
+  .refine(
+    (data) =>
+      data.ADMIN_AUTH_MODE !== 'keycloak' ||
+      (Boolean(data.KEYCLOAK_URL) &&
+        Boolean(data.KEYCLOAK_REALM) &&
+        Boolean(data.KEYCLOAK_CLIENT_ID) &&
+        Boolean(data.KEYCLOAK_CLIENT_SECRET) &&
+        Boolean(data.KEYCLOAK_REDIRECT_URI) &&
+        Boolean(data.SESSION_SECRET)),
+    {
+      message:
+        'KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET, KEYCLOAK_REDIRECT_URI and SESSION_SECRET are required when ADMIN_AUTH_MODE=keycloak',
+    },
+  );
 
 const workerSchema = z.object({
   DATABASE_URL: z.string().min(1),

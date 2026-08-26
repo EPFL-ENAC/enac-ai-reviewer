@@ -1,5 +1,6 @@
 import type { JobTrace } from '../../db/jobs.js';
 import type { ReviewJob } from '../../domain/types.js';
+import type { AdminUser } from './auth.js';
 
 function escapeHtml(raw: string): string {
   return raw
@@ -42,9 +43,12 @@ function githubPullUrl(repo: string, pullNumber: number): string {
   return `${githubRepoUrl(repo)}/pull/${pullNumber}`;
 }
 
-function layout(title: string, body: string, refreshUrl?: string): string {
+function layout(title: string, body: string, refreshUrl?: string, user?: AdminUser): string {
   const refresh = refreshUrl
     ? `<meta http-equiv="refresh" content="10;url=${escapeHtml(refreshUrl)}">`
+    : '';
+  const userHtml = user
+    ? `<span class="topbar-user">${escapeHtml(user.user)} <a href="/admin/logout">Log out</a></span>`
     : '';
   return `<!doctype html>
 <html lang="en">
@@ -70,6 +74,8 @@ function layout(title: string, body: string, refreshUrl?: string): string {
     .topbar { background: var(--epfl-red); color: var(--epfl-white); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; }
     .topbar-logo { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; text-decoration: none; color: var(--epfl-white); }
     .topbar-title { font-size: 1rem; font-weight: 400; opacity: 0.95; }
+    .topbar-user { margin-left: auto; font-size: 0.875rem; }
+    .topbar-user a { color: var(--epfl-white); }
     .container { padding: 2rem; max-width: 1200px; margin: 0 auto; }
     h1, h2 { margin-top: 0; color: var(--epfl-black); }
     h1 { font-weight: 400; border-bottom: 2px solid var(--epfl-red); padding-bottom: 0.5rem; margin-bottom: 1rem; }
@@ -114,6 +120,7 @@ function layout(title: string, body: string, refreshUrl?: string): string {
   <header class="topbar">
     <a href="/admin" class="topbar-logo">EPFL</a>
     <span class="topbar-title">AI Reviewer Admin</span>
+    ${userHtml}
   </header>
   <div class="container">
     ${body}
@@ -149,6 +156,7 @@ export function renderJobsList(opts: {
   pageSize: number;
   total: number;
   basePath: string;
+  user?: AdminUser;
 }): string {
   const statuses = ['queued', 'running', 'done', 'dead', 'failed'];
   const countLinks = statuses
@@ -224,7 +232,7 @@ export function renderJobsList(opts: {
     </div>
   `;
 
-  return layout('Admin — Jobs', body, refreshUrl);
+  return layout('Admin — Jobs', body, refreshUrl, opts.user);
 }
 
 function buildListUrl(basePath: string, status: string | undefined, page: number, pageSize: number): string {
@@ -236,7 +244,7 @@ function buildListUrl(basePath: string, status: string | undefined, page: number
   return query ? `${basePath}?${query}` : basePath;
 }
 
-export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; basePath: string }): string {
+export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; basePath: string; user?: AdminUser }): string {
   const job = opts.job;
   const repoLink = `<a href="${escapeHtml(githubRepoUrl(job.repositoryFullName))}" target="_blank">${escapeHtml(job.repositoryFullName)}</a>`;
   let targetRow = '';
@@ -290,7 +298,7 @@ export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; base
     ${tracesHtml || '<p class="empty">No trace events yet.</p>'}
   `;
 
-  return layout(`Admin — Job ${job.id.slice(0, 8)}`, body, refreshUrl);
+  return layout(`Admin — Job ${job.id.slice(0, 8)}`, body, refreshUrl, opts.user);
 }
 
 function formatTracePayload(type: string, payload: unknown): string {

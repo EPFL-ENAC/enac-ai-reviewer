@@ -11,6 +11,10 @@ export function getAdminUser(request: FastifyRequest, config: WebConfig): AdminU
     return { user: 'admin' };
   }
 
+  if (config.ADMIN_AUTH_MODE === 'keycloak') {
+    return request.session.get('adminUser') ?? null;
+  }
+
   const headerValue = request.headers[config.ADMIN_AUTH_HEADER_USER.toLowerCase()];
   const user = Array.isArray(headerValue) ? headerValue[0] : headerValue;
   if (!user) {

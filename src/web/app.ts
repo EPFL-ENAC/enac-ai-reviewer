@@ -1,12 +1,19 @@
 import type { App } from '@octokit/app';
 import Fastify, { type FastifyInstance } from 'fastify';
+import secureSession from '@fastify/secure-session';
 import { registerAdminUi } from './admin/routes.js';
 import type { Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
 import { registerGithubWebhook } from './github-webhook.js';
 import { registry } from './metrics.js';
+import { createKeycloakAuth, type KeycloakAuth } from './admin/keycloak.js';
 
-export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyInstance {
+export async function buildApp(
+  sql: Sql,
+  config: WebConfig,
+  githubApp: App,
+  injectedKeycloakAuth?: KeycloakAuth | null,
+): Promise<FastifyInstance> {
   const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY });
 
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, rawBody, done) => {
@@ -40,8 +47,24 @@ export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyIn
     return registry.metrics();
   });
 
+  let keycloakAuth: KeycloakAuth | null = null;
+  if (config.ADMIN_AUTH_ENABLED && config.ADMIN_AUTH_MODE === 'keycloak') {
+    await app.register(secureSession, {
+      secret: config.SESSION_SECRET!,
+      salt: Buffer.from('enac-ai-reviewer', 'ascii'),
+      expiry: 24 * 60 * 60,
+      cookie: {
+        path: '/',
+        httpOnly: true,
+        secure: config.TRUST_PROXY,
+        sameSite: 'lax',
+      },
+    });
+    keycloakAuth = injectedKeycloakAuth ?? (await createKeycloakAuth(config));
+  }
+
   registerGithubWebhook(app, sql, config, githubApp);
-  registerAdminUi(app, sql, config);
+  registerAdminUi(app, sql, config, keycloakAuth);
 
   return app;
 }

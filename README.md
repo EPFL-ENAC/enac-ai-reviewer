@@ -34,9 +34,9 @@ Not yet done, and blocking a real deployment:
 
 ### Admin UI ingress
 
-The Helm chart exposes `/admin` through a separate Ingress (`ingress.admin`) so it can be protected by an authentication proxy, while `/webhooks/github` remains publicly reachable.
+The Helm chart exposes `/admin` through a separate Ingress (`ingress.admin`) so it can be protected by an authentication proxy when running in proxy mode, while `/webhooks/github` remains publicly reachable. In direct Keycloak mode no auth proxy annotations are needed on the ingress.
 
-In your environment-specific values (e.g. `enack8s-app-config`), set the auth proxy annotations:
+In your environment-specific values (e.g. `enack8s-app-config`), set the auth proxy annotations when using proxy mode:
 
 ```yaml
 ingress:
@@ -102,10 +102,15 @@ The UI auto-refreshes every 10 seconds. Each job can also be **cancelled** (mark
 
 ### Authentication
 
-The admin UI is meant to be placed behind an organisation authentication proxy (e.g., Keycloak or OAuth2 Proxy). It reads the authenticated user from configurable HTTP headers:
+The admin UI supports two authentication modes, selected with `ADMIN_AUTH_MODE`.
+
+#### Proxy mode (`ADMIN_AUTH_MODE=proxy`)
+
+The app is placed behind an organisation authentication proxy (e.g., OAuth2 Proxy). The proxy passes the authenticated user in HTTP headers:
 
 ```text
 ADMIN_AUTH_ENABLED=true
+ADMIN_AUTH_MODE=proxy
 ADMIN_AUTH_HEADER_USER=X-Auth-Request-User
 ADMIN_AUTH_HEADER_EMAIL=X-Auth-Request-Email
 ADMIN_AUTH_USERS=              # optional comma-separated allowlist
@@ -113,7 +118,27 @@ TRUST_PROXY=true               # required when running behind a reverse proxy
 ```
 
 If the configured user header is missing, the admin routes return `401`.
-For local development without a proxy, set `ADMIN_AUTH_ENABLED=false`.
+
+#### Direct Keycloak OIDC (`ADMIN_AUTH_MODE=keycloak`)
+
+The app performs the OIDC authorization-code flow directly with Keycloak, using encrypted browser sessions:
+
+```text
+ADMIN_AUTH_ENABLED=true
+ADMIN_AUTH_MODE=keycloak
+KEYCLOAK_URL=https://keycloak.example.com
+KEYCLOAK_REALM=my-realm
+KEYCLOAK_CLIENT_ID=enac-ai-reviewer
+KEYCLOAK_CLIENT_SECRET=...
+KEYCLOAK_REDIRECT_URI=https://enac-ai-reviewer.epfl.ch/admin/auth/callback
+SESSION_SECRET=...             # at least 32 characters
+ADMIN_AUTH_USERS=              # optional comma-separated allowlist
+TRUST_PROXY=true               # required when running behind a reverse proxy
+```
+
+When a user visits `/admin` without a session, they are redirected to `/admin/login` and then to Keycloak. After authentication, Keycloak redirects back to `/admin/auth/callback`, the app creates a session, and the user is sent to the originally requested page. A "Log out" link clears the session and redirects to Keycloak's logout endpoint.
+
+For local development without authentication, set `ADMIN_AUTH_ENABLED=false`.
 
 ## Known dependency advisories
 
