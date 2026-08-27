@@ -1,4 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
+
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 import {
   cancelJob,
   countJobs,
@@ -65,27 +75,31 @@ function parseListQuery(query: Record<string, unknown>): {
   return { status, page, pageSize };
 }
 
-export function registerAdminUi(
+const authRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
+
+export async function registerAdminUi(
   app: FastifyInstance,
   sql: Sql,
   config: WebConfig,
   keycloakAuth: KeycloakAuth | null = null,
-): void {
+): Promise<void> {
+  await app.register(rateLimit, { global: false });
+
   if (keycloakAuth) {
-    app.get('/admin/login', async (request, reply) => {
+    app.get('/admin/login', { ...authRateLimit }, async (request, reply) => {
       const query = request.query as Record<string, unknown>;
       const redirectTo = typeof query.redirect === 'string' ? query.redirect : '/admin';
       return reply.redirect(keycloakAuth.getLoginUrl(request, redirectTo));
     });
 
-    app.get('/admin/auth/callback', async (request, reply) => {
+    app.get('/admin/auth/callback', { ...authRateLimit }, async (request, reply) => {
       try {
         const { redirectTo } = await keycloakAuth.handleCallback(request);
         return reply.redirect(redirectTo);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Authentication failed';
         reply.code(400).type('text/html').send(`<!doctype html>
-<html><head><title>Authentication failed</title></head><body><h1>Authentication failed</h1><p>${message}</p></body></html>`);
+<html><head><title>Authentication failed</title></head><body><h1>Authentication failed</h1><p>${escapeHtml(message)}</p></body></html>`);
       }
     });
 

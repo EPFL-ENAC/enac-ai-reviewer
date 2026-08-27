@@ -34,6 +34,7 @@ const webSchema = z
     KEYCLOAK_CLIENT_SECRET: z.string().optional(),
     KEYCLOAK_REDIRECT_URI: z.string().optional(),
     SESSION_SECRET: z.string().min(32).optional(),
+    SESSION_SALT: z.string().min(16).optional(),
     TRUST_PROXY: envBoolean(false),
   })
   .refine(

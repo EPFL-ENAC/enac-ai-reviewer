@@ -28,11 +28,13 @@ export async function createKeycloakAuth(config: WebConfig): Promise<KeycloakAut
   const issuerUrl = new URL(`${config.KEYCLOAK_URL}/realms/${config.KEYCLOAK_REALM}`);
   const redirectUri = config.KEYCLOAK_REDIRECT_URI!;
 
+  const discoveryOptions = issuerUrl.protocol === 'http:' ? { execute: [client.allowInsecureRequests] } : undefined;
   const oidcConfig = await client.discovery(
     issuerUrl,
     config.KEYCLOAK_CLIENT_ID!,
     { redirect_uris: [redirectUri] },
     client.ClientSecretPost(config.KEYCLOAK_CLIENT_SECRET!),
+    discoveryOptions,
   );
 
   return {

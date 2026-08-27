@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^0.1.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@fastify/secure-session": "^8.3.0",
     "@octokit/app": "^15.0.0",
     "@octokit/rest": "^21.0.0",

@@ -132,6 +132,7 @@ KEYCLOAK_CLIENT_ID=enac-ai-reviewer
 KEYCLOAK_CLIENT_SECRET=...
 KEYCLOAK_REDIRECT_URI=https://enac-ai-reviewer.epfl.ch/admin/auth/callback
 SESSION_SECRET=...             # at least 32 characters
+SESSION_SALT=...               # at least 16 characters (strongly recommended in production)
 ADMIN_AUTH_USERS=              # optional comma-separated allowlist
 TRUST_PROXY=true               # required when running behind a reverse proxy
 ```

@@ -108,7 +108,10 @@ function createMockKeycloakAuth(): KeycloakAuth {
       return { user, redirectTo: '/admin' };
     }),
     getUser: (request) => request.session.get('adminUser') ?? null,
-    getLogoutUrl: vi.fn(() => '/admin'),
+    getLogoutUrl: vi.fn((request) => {
+      request.session.delete();
+      return '/admin';
+    }),
   };
 }
 
@@ -187,6 +190,7 @@ describe('Admin UI Keycloak authentication', () => {
 
     const callbackRes = await kcApp.inject({ method: 'GET', url: '/admin/auth/callback?code=abc&state=xyz' });
     const sessionCookie = callbackRes.cookies.find((c) => c.name === 'session');
+    expect(sessionCookie).toBeDefined();
 
     const logoutRes = await kcApp.inject({
       method: 'GET',
@@ -196,12 +200,17 @@ describe('Admin UI Keycloak authentication', () => {
     expect(logoutRes.statusCode).toBe(302);
     expect(logoutRes.headers.location).toBe('/admin');
 
+    const clearedCookie = logoutRes.cookies.find((c) => c.name === 'session');
+    expect(clearedCookie).toBeDefined();
+    expect(clearedCookie!.value).toBe('');
+
     const jobsRes = await kcApp.inject({
       method: 'GET',
       url: '/admin/jobs',
-      cookies: { session: sessionCookie!.value },
+      cookies: { session: clearedCookie!.value },
     });
     expect(jobsRes.statusCode).toBe(302);
+    expect(jobsRes.headers.location).toContain('https://keycloak.example.com/login');
   });
 
   it('respects the allowlist in Keycloak mode', async () => {

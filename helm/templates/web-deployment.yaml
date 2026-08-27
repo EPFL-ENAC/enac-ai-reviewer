@@ -77,6 +77,39 @@ spec:
                 secretKeyRef:
                   name: {{ include "enac-ai-reviewer.webSecretName" . }}
                   key: {{ .Values.web.existingSecret.keys.githubPrivateKeyKey | default "GITHUB_PRIVATE_KEY" }}
+            {{- if eq .Values.web.env.ADMIN_AUTH_MODE "keycloak" }}
+            - name: KEYCLOAK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.keycloakUrlKey | default "KEYCLOAK_URL" }}
+            - name: KEYCLOAK_REALM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.keycloakRealmKey | default "KEYCLOAK_REALM" }}
+            - name: KEYCLOAK_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.keycloakClientIdKey | default "KEYCLOAK_CLIENT_ID" }}
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.keycloakClientSecretKey | default "KEYCLOAK_CLIENT_SECRET" }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.sessionSecretKey | default "SESSION_SECRET" }}
+            - name: SESSION_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.sessionSaltKey | default "SESSION_SALT" }}
+                  optional: true
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.web.livenessProbe | nindent 12 }}
           readinessProbe:
