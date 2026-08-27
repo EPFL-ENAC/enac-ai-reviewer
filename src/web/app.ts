@@ -1,12 +1,31 @@
 import type { App } from '@octokit/app';
 import Fastify, { type FastifyInstance } from 'fastify';
+import secureSession from '@fastify/secure-session';
+import { createHash } from 'crypto';
 import { registerAdminUi } from './admin/routes.js';
 import type { Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
 import { registerGithubWebhook } from './github-webhook.js';
 import { registry } from './metrics.js';
+import { createKeycloakAuth, type KeycloakAuth } from './admin/keycloak.js';
 
-export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyInstance {
+function deriveSessionSalt(secret: string): Buffer {
+  return createHash('sha256').update(secret).digest().subarray(0, 16);
+}
+
+function sessionSalt(config: WebConfig): Buffer {
+  if (config.SESSION_SALT) {
+    return Buffer.from(config.SESSION_SALT, 'utf8').subarray(0, 16);
+  }
+  return deriveSessionSalt(config.SESSION_SECRET!);
+}
+
+export async function buildApp(
+  sql: Sql,
+  config: WebConfig,
+  githubApp: App,
+  injectedKeycloakAuth?: KeycloakAuth | null,
+): Promise<FastifyInstance> {
   const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY });
 
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, rawBody, done) => {
@@ -40,8 +59,24 @@ export function buildApp(sql: Sql, config: WebConfig, githubApp: App): FastifyIn
     return registry.metrics();
   });
 
+  let keycloakAuth: KeycloakAuth | null = null;
+  if (config.ADMIN_AUTH_ENABLED && config.ADMIN_AUTH_MODE === 'keycloak') {
+    await app.register(secureSession, {
+      secret: config.SESSION_SECRET!,
+      salt: sessionSalt(config),
+      expiry: 24 * 60 * 60,
+      cookie: {
+        path: '/',
+        httpOnly: true,
+        secure: config.TRUST_PROXY,
+        sameSite: 'lax',
+      },
+    });
+    keycloakAuth = injectedKeycloakAuth ?? (await createKeycloakAuth(config));
+  }
+
   registerGithubWebhook(app, sql, config, githubApp);
-  registerAdminUi(app, sql, config);
+  await registerAdminUi(app, sql, config, keycloakAuth);
 
   return app;
 }

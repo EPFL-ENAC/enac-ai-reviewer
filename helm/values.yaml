@@ -35,13 +35,16 @@ web:
   env:
     GITHUB_BOT_LOGIN: "enac-ai-reviewer"
     ALLOWED_ORGANIZATIONS: "EPFL-ENAC"
-    # The admin UI is served by the same web process. When it sits behind an
-    # authentication proxy (Keycloak/OAuth2 Proxy), the proxy passes the user
-    # in configurable HTTP headers. TRUST_PROXY must be "true" when the app is
-    # accessed through an ingress/reverse proxy.
-    ADMIN_AUTH_ENABLED: "false"
-    ADMIN_AUTH_HEADER_USER: "X-Auth-Request-User"
-    ADMIN_AUTH_HEADER_EMAIL: "X-Auth-Request-Email"
+    # The admin UI is served by the same web process. Authentication can be
+    # handled either by an organisation proxy (ADMIN_AUTH_MODE=proxy) or
+    # directly through Keycloak OIDC (ADMIN_AUTH_MODE=keycloak).
+    # TRUST_PROXY must be "true" when the app is accessed through an
+    # ingress/reverse proxy.
+    ADMIN_AUTH_ENABLED: "true"
+    ADMIN_AUTH_MODE: "keycloak" # "proxy" or "keycloak"
+    #ADMIN_AUTH_HEADER_USER: "X-Auth-Request-User"
+    #ADMIN_AUTH_HEADER_EMAIL: "X-Auth-Request-Email"
+    KEYCLOAK_REDIRECT_URI: "https://enac-ai-reviewer.epfl.ch/admin/auth/callback"
     TRUST_PROXY: "true"
 
   podAnnotations: {}
@@ -108,12 +111,24 @@ web:
       githubWebhookSecretKey: GITHUB_WEBHOOK_SECRET
       githubAppIdKey: GITHUB_APP_ID
       githubPrivateKeyKey: GITHUB_PRIVATE_KEY
+      keycloakUrlKey: KEYCLOAK_URL
+      keycloakRealmKey: KEYCLOAK_REALM
+      keycloakClientIdKey: KEYCLOAK_CLIENT_ID
+      keycloakClientSecretKey: KEYCLOAK_CLIENT_SECRET
+      sessionSecretKey: SESSION_SECRET
+      sessionSaltKey: SESSION_SALT
 
   # Chart-managed fallback when existingSecret.enabled=false (e.g. local/dev).
   secrets:
     GITHUB_WEBHOOK_SECRET: ""
     GITHUB_APP_ID: ""
     GITHUB_PRIVATE_KEY: ""
+    KEYCLOAK_URL: ""
+    KEYCLOAK_REALM: ""
+    KEYCLOAK_CLIENT_ID: ""
+    KEYCLOAK_CLIENT_SECRET: ""
+    SESSION_SECRET: ""
+    SESSION_SALT: ""
 
 worker:
   enabled: true

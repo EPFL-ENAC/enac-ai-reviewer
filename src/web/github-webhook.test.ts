@@ -25,6 +25,7 @@ const config: WebConfig = {
   PORT: 3000,
   allowedOrganizations: [ALLOWED_ORG],
   ADMIN_AUTH_ENABLED: false,
+  ADMIN_AUTH_MODE: 'proxy',
   ADMIN_AUTH_HEADER_USER: 'X-Auth-Request-User',
   ADMIN_AUTH_HEADER_EMAIL: undefined,
   ADMIN_AUTH_USERS: '',
@@ -132,9 +133,9 @@ function issueCommentPayload(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   resetInstallationIdCache();
-  resetReactionCalls();
-  app = buildApp(sql, config, mockGithubApp);
+  app = await buildApp(sql, config, mockGithubApp);
   await sql`truncate job_traces, llm_usage, review_jobs, webhook_deliveries`;
+  resetReactionCalls();
 });
 
 afterAll(async () => {
@@ -195,7 +196,7 @@ describe('POST /webhooks/github', () => {
   });
 
   it('still enqueues the job when the acknowledgment reaction fails', async () => {
-    const failingApp = buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), reactionStatus: 500 }));
+    const failingApp = await buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), reactionStatus: 500 }));
     const res = await failingApp.inject({
       method: 'POST',
       url: '/webhooks/github',
@@ -321,7 +322,7 @@ describe('POST /webhooks/github', () => {
   });
 
   it('returns 500 when membership check fails due to a configuration error', async () => {
-    const configApp = buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), installationStatus: 403 }));
+    const configApp = await buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), installationStatus: 403 }));
     const res = await configApp.inject({
       method: 'POST',
       url: '/webhooks/github',
@@ -340,7 +341,7 @@ describe('POST /webhooks/github', () => {
   });
 
   it('returns 204 when membership check fails due to a transient error', async () => {
-    const configApp = buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), installationStatus: 502 }));
+    const configApp = await buildApp(sql, config, createMockGithubApp({ members: new Set(['guilbep']), installationStatus: 502 }));
     const res = await configApp.inject({
       method: 'POST',
       url: '/webhooks/github',

@@ -1,4 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
+
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 import {
   cancelJob,
   countJobs,
@@ -12,14 +22,29 @@ import {
 import type { Sql } from '../../db/pool.js';
 import type { WebConfig } from '../../domain/config.js';
 import { getAdminUser, isAdminUserAllowed, type AdminUser } from './auth.js';
+import type { KeycloakAuth } from './keycloak.js';
 import { renderJobDetail, renderJobsList } from './templates.js';
 
 const BASE_PATH = '/admin/jobs';
 
-function requireAdminUserHtml(request: FastifyRequest, reply: FastifyReply, config: WebConfig): AdminUser | null {
+function requireAdminUserHtml(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  config: WebConfig,
+  keycloakAuth: KeycloakAuth | null,
+): AdminUser | null {
   const user = getAdminUser(request, config);
-  if (!user || !isAdminUserAllowed(user, config)) {
-    reply.code(401).type('text/html').send(`<!doctype html>
+  if (user && isAdminUserAllowed(user, config)) {
+    return user;
+  }
+
+  if (config.ADMIN_AUTH_MODE === 'keycloak' && keycloakAuth) {
+    const loginUrl = keycloakAuth.getLoginUrl(request, request.url);
+    reply.redirect(loginUrl);
+    return null;
+  }
+
+  reply.code(401).type('text/html').send(`<!doctype html>
 <html>
 <head><title>Admin — Authentication required</title></head>
 <body>
@@ -27,9 +52,7 @@ function requireAdminUserHtml(request: FastifyRequest, reply: FastifyReply, conf
   <p>Please access <code>/admin</code> through the organisation authentication proxy.</p>
 </body>
 </html>`);
-    return null;
-  }
-  return user;
+  return null;
 }
 
 function requireAdminUserJson(request: FastifyRequest, reply: FastifyReply, config: WebConfig): AdminUser | null {
@@ -48,19 +71,51 @@ function parseListQuery(query: Record<string, unknown>): {
 } {
   const status = typeof query.status === 'string' ? query.status : undefined;
   const page = Math.max(1, parseInt(String(query.page ?? '1'), 10) || 1);
-  const pageSize = Math.min(200, Math.max(1, parseInt(String(query.pageSize ?? '50'), 10) || 50));
+  const pageSize = Math.min(200, Math.max(1, parseInt(String(query.pageSize ?? '20'), 10) || 20));
   return { status, page, pageSize };
 }
 
-export function registerAdminUi(app: FastifyInstance, sql: Sql, config: WebConfig): void {
+const authRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
+
+export async function registerAdminUi(
+  app: FastifyInstance,
+  sql: Sql,
+  config: WebConfig,
+  keycloakAuth: KeycloakAuth | null = null,
+): Promise<void> {
+  await app.register(rateLimit, { global: false });
+
+  if (keycloakAuth) {
+    app.get('/admin/login', { ...authRateLimit }, async (request, reply) => {
+      const query = request.query as Record<string, unknown>;
+      const redirectTo = typeof query.redirect === 'string' ? query.redirect : '/admin';
+      return reply.redirect(keycloakAuth.getLoginUrl(request, redirectTo));
+    });
+
+    app.get('/admin/auth/callback', { ...authRateLimit }, async (request, reply) => {
+      try {
+        const { redirectTo } = await keycloakAuth.handleCallback(request);
+        return reply.redirect(redirectTo);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Authentication failed';
+        reply.code(400).type('text/html').send(`<!doctype html>
+<html><head><title>Authentication failed</title></head><body><h1>Authentication failed</h1><p>${escapeHtml(message)}</p></body></html>`);
+      }
+    });
+
+    app.get('/admin/logout', async (request, reply) => {
+      return reply.redirect(keycloakAuth.getLogoutUrl(request));
+    });
+  }
+
   app.get('/admin', async (request, reply) => {
-    const user = requireAdminUserHtml(request, reply, config);
+    const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
     if (!user) return;
     return reply.redirect(BASE_PATH);
   });
 
   app.get(BASE_PATH, async (request, reply) => {
-    const user = requireAdminUserHtml(request, reply, config);
+    const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
     if (!user) return;
 
     const { status, page, pageSize } = parseListQuery(request.query as Record<string, unknown>);
@@ -73,12 +128,12 @@ export function registerAdminUi(app: FastifyInstance, sql: Sql, config: WebConfi
     ]);
 
     reply.type('text/html').send(
-      renderJobsList({ jobs, counts, statusFilter: status, page, pageSize, total, basePath: BASE_PATH }),
+      renderJobsList({ jobs, counts, statusFilter: status, page, pageSize, total, basePath: BASE_PATH, user }),
     );
   });
 
   app.get(`${BASE_PATH}/:id`, async (request, reply) => {
-    const user = requireAdminUserHtml(request, reply, config);
+    const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
     if (!user) return;
 
     const { id } = request.params as { id: string };
@@ -90,7 +145,7 @@ export function registerAdminUi(app: FastifyInstance, sql: Sql, config: WebConfi
       return;
     }
 
-    reply.type('text/html').send(renderJobDetail({ job, traces, basePath: BASE_PATH }));
+    reply.type('text/html').send(renderJobDetail({ job, traces, basePath: BASE_PATH, user }));
   });
 
   app.get('/admin/api/jobs', async (request, reply) => {
@@ -125,7 +180,7 @@ export function registerAdminUi(app: FastifyInstance, sql: Sql, config: WebConfi
   });
 
   app.post(`${BASE_PATH}/:id/cancel`, async (request, reply) => {
-    const user = requireAdminUserHtml(request, reply, config);
+    const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
     if (!user) return;
 
     const { id } = request.params as { id: string };
@@ -144,7 +199,7 @@ export function registerAdminUi(app: FastifyInstance, sql: Sql, config: WebConfi
   });
 
   app.post(`${BASE_PATH}/:id/retry`, async (request, reply) => {
-    const user = requireAdminUserHtml(request, reply, config);
+    const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
     if (!user) return;
 
     const { id } = request.params as { id: string };
