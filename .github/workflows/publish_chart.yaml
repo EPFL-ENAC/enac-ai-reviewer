@@ -41,8 +41,8 @@ jobs:
       - name: Render Chart
         # Smoke-test both secret paths. Default (existingSecret) needs Secret
         # names and disables embedded Postgres; chart-managed (dev) needs
-        # throwaway values including a Postgres password. Real deploys inject
-        # the real values.
+        # throwaway values including a Postgres password and Keycloak OIDC
+        # secrets. Real deploys inject the real values via Infisical/SealedSecrets.
         run: |
           helm template . \
             --set web.existingSecret.name=ci-web-secret \
@@ -54,6 +54,11 @@ jobs:
             --set web.secrets.GITHUB_WEBHOOK_SECRET=ci-webhook-secret \
             --set web.secrets.GITHUB_APP_ID=ci-app-id \
             --set web.secrets.GITHUB_PRIVATE_KEY=ci-pem \
+            --set web.secrets.KEYCLOAK_URL=https://keycloak.example.com \
+            --set web.secrets.KEYCLOAK_REALM=ci-realm \
+            --set web.secrets.KEYCLOAK_CLIENT_ID=ci-client-id \
+            --set web.secrets.KEYCLOAK_CLIENT_SECRET=ci-client-secret \
+            --set web.secrets.SESSION_SECRET=ci-session-secret \
             --set worker.existingSecret.enabled=false --set worker.secrets.GITHUB_APP_ID=1 --set worker.secrets.GITHUB_PRIVATE_KEY=ci-pem --set worker.secrets.LLM_API_KEY=ci-llm-key \
             --set database.postgresql.auth.password=ci-postgres-password
 
