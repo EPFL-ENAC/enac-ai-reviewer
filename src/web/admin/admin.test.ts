@@ -79,7 +79,7 @@ describe('Admin UI authentication', () => {
     expect(JSON.parse(res.payload)).toEqual({ error: 'Authentication required' });
   });
 
-  it('returns 401 when the user is not in the allowlist', async () => {
+  it('returns 403 when the user is not in the allowlist', async () => {
     const restrictedConfig: WebConfig = { ...config, adminAuthUsers: ['only-admin'] };
     const restrictedApp = await buildApp(sql, restrictedConfig, mockGithubApp);
     const res = await restrictedApp.inject({
@@ -87,7 +87,8 @@ describe('Admin UI authentication', () => {
       url: '/admin',
       headers: authHeaders('other-user'),
     });
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(403);
+    expect(res.payload).toContain('Access denied');
   });
 
   it('allows access without a header when admin auth is disabled', async () => {
@@ -225,8 +226,8 @@ describe('Admin UI Keycloak authentication', () => {
       url: '/admin/jobs',
       cookies: { session: sessionCookie!.value },
     });
-    expect(jobsRes.statusCode).toBe(302);
-    expect(jobsRes.headers.location).toContain('https://keycloak.example.com/login');
+    expect(jobsRes.statusCode).toBe(403);
+    expect(jobsRes.payload).toContain('Access denied');
   });
 });
 

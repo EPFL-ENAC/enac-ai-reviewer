@@ -34,17 +34,17 @@ function requireAdminUserHtml(
   keycloakAuth: KeycloakAuth | null,
 ): AdminUser | null {
   const user = getAdminUser(request, config);
+  const isKeycloak = config.ADMIN_AUTH_MODE === 'keycloak' && keycloakAuth;
+
   if (user && isAdminUserAllowed(user, config)) {
     return user;
   }
 
-  if (config.ADMIN_AUTH_MODE === 'keycloak' && keycloakAuth) {
-    const loginUrl = keycloakAuth.getLoginUrl(request, request.url);
-    reply.redirect(loginUrl);
-    return null;
-  }
-
-  reply.code(401).type('text/html').send(`<!doctype html>
+  if (!user) {
+    if (isKeycloak) {
+      reply.redirect(keycloakAuth.getLoginUrl(request, request.url));
+    } else {
+      reply.code(401).type('text/html').send(`<!doctype html>
 <html>
 <head><title>Admin — Authentication required</title></head>
 <body>
@@ -52,6 +52,31 @@ function requireAdminUserHtml(
   <p>Please access <code>/admin</code> through the organisation authentication proxy.</p>
 </body>
 </html>`);
+    }
+    return null;
+  }
+
+  // Authenticated but not authorized.
+  if (isKeycloak) {
+    const loginUrl = keycloakAuth.getLoginUrl(request, request.url);
+    reply.code(403).type('text/html').send(`<!doctype html>
+<html>
+<head><title>Admin — Access denied</title></head>
+<body>
+  <h1>Access denied</h1>
+  <p>You are not authorized to access <code>/admin</code>. You can <a href="${loginUrl}">log in with a different account</a>.</p>
+</body>
+</html>`);
+  } else {
+    reply.code(403).type('text/html').send(`<!doctype html>
+<html>
+<head><title>Admin — Access denied</title></head>
+<body>
+  <h1>Access denied</h1>
+  <p>You are not authorized to access <code>/admin</code>.</p>
+</body>
+</html>`);
+  }
   return null;
 }
 
