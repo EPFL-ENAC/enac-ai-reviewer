@@ -198,8 +198,13 @@ export function renderJobsList(opts: {
   const prevLink = prevUrl ? `<a href="${prevUrl}">← Previous</a>` : '<span style="color:#57606a">← Previous</span>';
   const nextLink = nextUrl ? `<a href="${nextUrl}">Next →</a>` : '<span style="color:#57606a">Next →</span>';
 
-  const querySuffix = opts.statusFilter ? `?status=${opts.statusFilter}` : '';
-  const refreshUrl = `${opts.basePath}${querySuffix}`;
+  const refreshParams = new URLSearchParams();
+  if (opts.statusFilter) refreshParams.set('status', opts.statusFilter);
+  if (opts.page !== 1) refreshParams.set('page', String(opts.page));
+  if (opts.pageSize !== 50) refreshParams.set('pageSize', String(opts.pageSize));
+  const refreshUrl = refreshParams.toString()
+    ? `${opts.basePath}?${refreshParams.toString()}`
+    : opts.basePath;
 
   const body = `
     <h1>Admin — Jobs</h1>

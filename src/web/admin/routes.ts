@@ -85,6 +85,12 @@ export async function registerAdminUi(
 ): Promise<void> {
   await app.register(rateLimit, { global: false });
 
+  app.get('/admin', async (request, reply) => {
+    const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
+    if (!user) return;
+    return reply.redirect(BASE_PATH);
+  });
+
   if (keycloakAuth) {
     app.get('/admin/login', { ...authRateLimit }, async (request, reply) => {
       const query = request.query as Record<string, unknown>;
@@ -107,12 +113,6 @@ export async function registerAdminUi(
       return reply.redirect(keycloakAuth.getLogoutUrl(request));
     });
   }
-
-  app.get('/admin', async (request, reply) => {
-    const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
-    if (!user) return;
-    return reply.redirect(BASE_PATH);
-  });
 
   app.get(BASE_PATH, async (request, reply) => {
     const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
