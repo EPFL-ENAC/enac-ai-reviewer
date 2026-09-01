@@ -43,6 +43,7 @@ const config: WebConfig = {
   ADMIN_AUTH_USERS: '',
   TRUST_PROXY: false,
   adminAuthUsers: [],
+  COOKIE_SECURE: false,
 };
 
 const mockGithubApp = { octokit: {} } as unknown as App;
