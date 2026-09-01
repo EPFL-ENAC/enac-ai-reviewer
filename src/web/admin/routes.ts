@@ -35,6 +35,11 @@ function requireAdminUserHtml(
 ): AdminUser | null {
   const user = getAdminUser(request, config);
   const isKeycloak = config.ADMIN_AUTH_MODE === 'keycloak' && keycloakAuth;
+  let loginUrl: string | null = null;
+
+  if(isKeycloak) {
+    loginUrl = keycloakAuth.getLoginUrl(request, request.url);
+  }
 
   if (user && isAdminUserAllowed(user, config)) {
     return user;
@@ -42,7 +47,7 @@ function requireAdminUserHtml(
 
   if (!user) {
     if (isKeycloak) {
-      reply.redirect(keycloakAuth.getLoginUrl(request, request.url));
+      reply.redirect(loginUrl!);
     } else {
       reply.code(401).type('text/html').send(`<!doctype html>
 <html>
@@ -58,7 +63,6 @@ function requireAdminUserHtml(
 
   // Authenticated but not authorized.
   if (isKeycloak) {
-    const loginUrl = keycloakAuth.getLoginUrl(request, request.url);
     reply.code(403).type('text/html').send(`<!doctype html>
 <html>
 <head><title>Admin — Access denied</title></head>
