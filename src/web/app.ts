@@ -68,7 +68,7 @@ export async function buildApp(
       cookie: {
         path: '/',
         httpOnly: true,
-        secure: true,
+        secure: config.COOKIE_SECURE ?? true,
         sameSite: 'lax',
       },
     });
