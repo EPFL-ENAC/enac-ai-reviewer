@@ -139,7 +139,7 @@ worker:
   env:
     GITHUB_BOT_LOGIN: "enac-ai-reviewer"
     LLM_BASE_URL: "https://inference.rcp.epfl.ch/v1"
-    LLM_MODEL: "Qwen/Qwen3.6-35B-A3B"
+    LLM_MODEL: "deepseek-ai/DeepSeek-V4-Flash-0731"
 
   heartbeatFile: /tmp/worker-heartbeat
 
