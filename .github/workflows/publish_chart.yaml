@@ -59,7 +59,7 @@ jobs:
             --set web.secrets.KEYCLOAK_CLIENT_ID=ci-client-id \
             --set web.secrets.KEYCLOAK_CLIENT_SECRET=ci-client-secret \
             --set web.secrets.SESSION_SECRET=ci-session-secret \
-            --set worker.existingSecret.enabled=false --set worker.secrets.GITHUB_APP_ID=1 --set worker.secrets.GITHUB_PRIVATE_KEY=ci-pem --set worker.secrets.LLM_API_KEY=ci-llm-key \
+            --set worker.existingSecret.enabled=false --set worker.secrets.GITHUB_APP_ID=1 --set worker.secrets.GITHUB_PRIVATE_KEY=ci-pem --set worker.secrets.LLM_API_KEY=ci-llm-key --set worker.secrets.LLM_MODEL=Qwen/Qwen3.6-35B-A3B \
             --set database.postgresql.auth.password=ci-postgres-password
 
       - name: Set Helm chart version based on branch
