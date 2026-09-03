@@ -13,7 +13,7 @@ function escapeHtml(raw: string): string {
 
 function formatDate(date: Date | string | null | undefined): string {
   if (!date) return '-';
-  return new Date(date).toLocaleString();
+  return new Date(date).toLocaleString("fr-CH", { timeZone: "Europe/Zurich" });
 }
 
 function statusClass(status: string): string {
