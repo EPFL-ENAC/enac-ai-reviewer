@@ -142,6 +142,7 @@ function keycloakConfig(issuerUrl: string): WebConfig {
     TRUST_PROXY: false,
     allowedOrganizations: ['EPFL-ENAC'],
     adminAuthUsers: [],
+    COOKIE_SECURE: false,
   } as WebConfig;
 }
 

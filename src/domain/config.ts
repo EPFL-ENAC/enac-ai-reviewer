@@ -36,6 +36,7 @@ const webSchema = z
     SESSION_SECRET: z.string().min(32).optional(),
     SESSION_SALT: z.string().min(16).optional(),
     TRUST_PROXY: envBoolean(false),
+    COOKIE_SECURE: envBoolean(true),
   })
   .refine(
     (data) =>

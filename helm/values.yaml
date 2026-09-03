@@ -139,7 +139,6 @@ worker:
   env:
     GITHUB_BOT_LOGIN: "enac-ai-reviewer"
     LLM_BASE_URL: "https://inference.rcp.epfl.ch/v1"
-    LLM_MODEL: "deepseek-ai/DeepSeek-V4-Flash-0731"
 
   heartbeatFile: /tmp/worker-heartbeat
 
@@ -196,6 +195,8 @@ worker:
     GITHUB_APP_ID: ""
     GITHUB_PRIVATE_KEY: ""
     LLM_API_KEY: ""
+    LLM_MODEL: ""
+
 
 # -----------------------------------------------------------------------------
 # Database: shared by web, worker, and the migration job. Env var name matches

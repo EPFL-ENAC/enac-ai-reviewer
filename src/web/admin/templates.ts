@@ -131,7 +131,7 @@ function layout(title: string, body: string, refreshUrl?: string, user?: AdminUs
 
 function renderActions(job: ReviewJob, basePath: string): string {
   const forms: string[] = [];
-  if (job.status !== 'dead') {
+  if (job.status == 'queued' || job.status === 'running') {
     forms.push(
       `<form method="POST" action="${basePath}/${job.id}/cancel" class="action-form">` +
         `<button type="submit" class="btn btn-secondary">Cancel</button>` +
