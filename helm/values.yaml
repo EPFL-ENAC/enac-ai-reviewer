@@ -190,6 +190,7 @@ worker:
       githubAppIdKey: GITHUB_APP_ID
       githubPrivateKeyKey: GITHUB_PRIVATE_KEY
       llmApiKeyKey: LLM_API_KEY
+      llmModelKey: LLM_MODEL
 
   secrets:
     GITHUB_APP_ID: ""

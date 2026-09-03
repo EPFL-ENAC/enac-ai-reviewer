@@ -75,6 +75,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "enac-ai-reviewer.workerSecretName" . }}
                   key: {{ .Values.worker.existingSecret.keys.llmApiKeyKey | default "LLM_API_KEY" }}
+            - name: LLM_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.workerSecretName" . }}
+                  key: {{ .Values.worker.existingSecret.keys.llmModelKey | default "LLM_MODEL" }}
           # Heartbeat-file exec probes: the worker loop touches this file every
           # poll tick, so a stale/missing file proves the loop itself is stuck
           # (wedged DB connection, hung event loop) — not just that the
