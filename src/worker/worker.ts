@@ -93,9 +93,13 @@ async function start(): Promise<void> {
 
   // If a previous worker died mid-job, those rows are still 'running'.
   // Re-queue them so work is not lost after a pod restart.
-  const requeuedCount = await requeueStaleRunningJobs(sql, STALE_JOB_MAX_AGE_MINUTES);
-  if (requeuedCount > 0) {
-    logger.info({ requeuedCount }, 'requeued stale running jobs after worker startup');
+  try {
+    const requeuedCount = await requeueStaleRunningJobs(sql, STALE_JOB_MAX_AGE_MINUTES);
+    if (requeuedCount > 0) {
+      logger.info({ requeuedCount }, 'requeued stale running jobs after worker startup');
+    }
+  } catch (err) {
+    logger.error({ err }, 'failed to requeue stale running jobs; continuing poll loop');
   }
 
   void loop();
