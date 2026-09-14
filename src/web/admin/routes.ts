@@ -1,3 +1,7 @@
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 
@@ -23,9 +27,15 @@ import type { Sql } from '../../db/pool.js';
 import type { WebConfig } from '../../domain/config.js';
 import { getAdminUser, isAdminUserAllowed, type AdminUser } from './auth.js';
 import type { KeycloakAuth } from './keycloak.js';
-import { renderJobDetail, renderJobsList } from './templates.js';
+import { renderJobDetail, renderJobsList, renderMessagePage } from './templates.js';
 
 const BASE_PATH = '/admin/jobs';
+const ASSETS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'assets');
+
+const ASSET_CONTENT_TYPES: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+};
 
 function requireAdminUserHtml(
   request: FastifyRequest,
@@ -49,37 +59,36 @@ function requireAdminUserHtml(
     if (isKeycloak) {
       reply.redirect(loginUrl!);
     } else {
-      reply.code(401).type('text/html').send(`<!doctype html>
-<html>
-<head><title>Admin — Authentication required</title></head>
-<body>
-  <h1>Authentication required</h1>
-  <p>Please access <code>/admin</code> through the organisation authentication proxy.</p>
-</body>
-</html>`);
+      reply.code(401).type('text/html').send(
+        renderMessagePage({
+          title: 'Admin — Authentication required',
+          heading: 'Authentication required',
+          message: 'Please access <code>/admin</code> through the organisation authentication proxy.',
+        }),
+      );
     }
     return null;
   }
 
   // Authenticated but not authorized.
   if (isKeycloak) {
-    reply.code(403).type('text/html').send(`<!doctype html>
-<html>
-<head><title>Admin — Access denied</title></head>
-<body>
-  <h1>Access denied</h1>
-  <p>You are not authorized to access <code>/admin</code>. You can <a href="${loginUrl}">log in with a different account</a>.</p>
-</body>
-</html>`);
+    reply.code(403).type('text/html').send(
+      renderMessagePage({
+        title: 'Admin — Access denied',
+        heading: 'Access denied',
+        message: `You are not authorized to access <code>/admin</code>. You can <a href="${loginUrl}">log in with a different account</a>.`,
+        variant: 'danger',
+      }),
+    );
   } else {
-    reply.code(403).type('text/html').send(`<!doctype html>
-<html>
-<head><title>Admin — Access denied</title></head>
-<body>
-  <h1>Access denied</h1>
-  <p>You are not authorized to access <code>/admin</code>.</p>
-</body>
-</html>`);
+    reply.code(403).type('text/html').send(
+      renderMessagePage({
+        title: 'Admin — Access denied',
+        heading: 'Access denied',
+        message: 'You are not authorized to access <code>/admin</code>.',
+        variant: 'danger',
+      }),
+    );
   }
   return null;
 }
@@ -114,6 +123,29 @@ export async function registerAdminUi(
 ): Promise<void> {
   await app.register(rateLimit, { global: false });
 
+  app.get('/admin/assets/*', async (request, reply) => {
+    const requested = (request.params as { '*': string })['*'];
+    const ext = path.extname(requested).toLowerCase();
+    const contentType = ASSET_CONTENT_TYPES[ext];
+    if (!contentType) {
+      reply.code(404).send();
+      return;
+    }
+    const resolved = path.join(ASSETS_DIR, requested);
+    if (!resolved.startsWith(ASSETS_DIR + path.sep)) {
+      reply.code(404).send();
+      return;
+    }
+    try {
+      await stat(resolved);
+    } catch {
+      reply.code(404).send();
+      return;
+    }
+    reply.type(contentType).header('Cache-Control', 'public, max-age=86400');
+    return reply.send(createReadStream(resolved));
+  });
+
   app.get('/admin', async (request, reply) => {
     const user = requireAdminUserHtml(request, reply, config, keycloakAuth);
     if (!user) return;
@@ -133,8 +165,14 @@ export async function registerAdminUi(
         return reply.redirect(redirectTo);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Authentication failed';
-        reply.code(400).type('text/html').send(`<!doctype html>
-<html><head><title>Authentication failed</title></head><body><h1>Authentication failed</h1><p>${escapeHtml(message)}</p></body></html>`);
+        reply.code(400).type('text/html').send(
+          renderMessagePage({
+            title: 'Authentication failed',
+            heading: 'Authentication failed',
+            message: escapeHtml(message),
+            variant: 'danger',
+          }),
+        );
       }
     });
 
@@ -169,8 +207,9 @@ export async function registerAdminUi(
     const [job, traces] = await Promise.all([getJobById(sql, id), getJobTraces(sql, id)]);
 
     if (!job) {
-      reply.code(404).type('text/html').send(`<!doctype html>
-<html><head><title>Not found</title></head><body><h1>Job not found</h1></body></html>`);
+      reply.code(404).type('text/html').send(
+        renderMessagePage({ title: 'Not found', heading: 'Job not found', message: 'No job matches this ID.', user }),
+      );
       return;
     }
 
@@ -215,8 +254,9 @@ export async function registerAdminUi(
     const { id } = request.params as { id: string };
     const job = await getJobById(sql, id);
     if (!job) {
-      reply.code(404).type('text/html').send(`<!doctype html>
-<html><head><title>Not found</title></head><body><h1>Job not found</h1></body></html>`);
+      reply.code(404).type('text/html').send(
+        renderMessagePage({ title: 'Not found', heading: 'Job not found', message: 'No job matches this ID.', user }),
+      );
       return;
     }
 
@@ -234,8 +274,9 @@ export async function registerAdminUi(
     const { id } = request.params as { id: string };
     const job = await getJobById(sql, id);
     if (!job) {
-      reply.code(404).type('text/html').send(`<!doctype html>
-<html><head><title>Not found</title></head><body><h1>Job not found</h1></body></html>`);
+      reply.code(404).type('text/html').send(
+        renderMessagePage({ title: 'Not found', heading: 'Job not found', message: 'No job matches this ID.', user }),
+      );
       return;
     }
 
