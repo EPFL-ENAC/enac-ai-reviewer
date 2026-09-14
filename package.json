@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "postbuild": "cp -r src/web/admin/assets dist/web/admin/",
     "start:web": "node --env-file=.env dist/web/server.js",
     "start:worker": "node --env-file=.env dist/worker/worker.js",
     "dev:web": "tsx --env-file=.env src/web/server.ts",

@@ -1,0 +1,118 @@
+/* Admin panel — structural chrome only.
+   All colour, type and spacing values come from EPFL design tokens
+   (var(--…), defined in epfl.css). No raw hex, no raw px. */
+
+body { background: var(--bg-subtle); }
+
+.admin-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.admin-topbar-module {
+  font-size: var(--fs-sm);
+  font-weight: var(--w-bold);
+  color: var(--fg-muted);
+  padding-left: var(--space-3);
+  margin-left: var(--space-3);
+  border-left: var(--border-w) solid var(--border);
+}
+.admin-topbar-user {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.admin-container { padding: var(--space-4) var(--space-5); max-width: 75rem; margin: 0 auto; }
+
+.admin-page-title {
+  font-size: var(--fs-h3);
+  font-weight: var(--w-bold);
+  color: var(--fg);
+  margin: 0 0 var(--space-4);
+}
+
+.admin-filters {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-4);
+}
+.admin-filter.epfl-tag.active {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.admin-table { width: 100%; border-collapse: collapse; background: var(--bg); border: var(--border-w) solid var(--border); }
+.admin-table th, .admin-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: var(--border-w) solid var(--border);
+  font-size: var(--fs-sm);
+}
+.admin-table th {
+  font-weight: var(--w-bold);
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  font-size: var(--fs-xs);
+}
+.admin-table tr:last-child td { border-bottom: none; }
+.admin-table tr:hover td { background: var(--bg-muted); }
+
+/* Status badges — red is reserved for danger, never a neutral state
+   (see epfl-design app-ui.md §3, "the red double-meaning rule"). */
+.admin-status { display: inline-block; padding: .25em .5em; font-size: var(--fs-xs); font-weight: var(--w-bold); border-radius: var(--radius); text-transform: uppercase; }
+.admin-status-queued  { background: var(--bg-muted); color: var(--fg-muted); }
+.admin-status-running { background: var(--warning); color: var(--fg); }
+.admin-status-done    { background: var(--success); color: var(--fg); }
+.admin-status-dead,
+.admin-status-failed  { background: var(--danger); color: var(--on-primary); }
+
+.admin-actions { display: flex; gap: var(--space-2); }
+.admin-action-form { margin: 0; }
+.admin-detail-actions { margin-bottom: var(--space-4); }
+
+.admin-pagination {
+  margin-top: var(--space-4);
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+}
+.admin-pagination a { color: var(--link); }
+.admin-pagination-disabled { color: var(--fg-disabled); }
+
+.admin-back { display: inline-block; margin-bottom: var(--space-3); font-size: var(--fs-sm); }
+
+.admin-detail-table { width: 100%; border-collapse: collapse; background: var(--bg); border: var(--border-w) solid var(--border); margin-bottom: var(--space-4); }
+.admin-detail-table th, .admin-detail-table td { padding: 0.5rem 0.75rem; border-bottom: var(--border-w) solid var(--border); font-size: var(--fs-sm); vertical-align: top; }
+.admin-detail-table tr:last-child th, .admin-detail-table tr:last-child td { border-bottom: none; }
+.admin-detail-table th { width: 10rem; text-align: left; font-weight: var(--w-bold); color: var(--fg-muted); background: var(--bg-subtle); }
+
+.admin-trace { margin: 0 0 var(--space-3); padding: var(--space-3); border: var(--border-w) solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.admin-trace-header { display: flex; gap: var(--space-3); align-items: baseline; margin-bottom: var(--space-2); }
+.admin-trace-time { color: var(--fg-subtle); font-size: var(--fs-xs); }
+.admin-trace-type { font-weight: var(--w-bold); color: var(--fg-muted); text-transform: uppercase; letter-spacing: .02em; font-size: var(--fs-xs); }
+
+.admin-trace pre,
+.admin-detail-table pre {
+  background: var(--bg-subtle);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  border: var(--border-w) solid var(--border-subtle);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+
+.admin-empty { color: var(--fg-muted); font-style: italic; }
+
+.admin-message { max-width: 34rem; margin: var(--space-5) auto; text-align: center; }
+.admin-message .epfl-alert { text-align: left; margin-bottom: var(--space-4); }
