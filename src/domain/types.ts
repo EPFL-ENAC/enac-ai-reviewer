@@ -8,6 +8,13 @@ export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'dead';
 
 export type TriggerCommand = 'review' | 'explain' | 'triage';
 
+export interface CommandArgs {
+  effort?: 'low' | 'medium' | 'high';
+  model?: string;
+  context?: string;
+  prompt?: string;
+}
+
 export interface ReviewJob {
   id: string;
   provider: 'github';
@@ -17,6 +24,7 @@ export interface ReviewJob {
   issueNumber: number | null;
   changeRequestNumber: number | null;
   headSha: string | null;
+  commandArgs: CommandArgs | null;
   triggerActor: string;
   dedupeKey: string;
   payload: unknown;
@@ -35,6 +43,7 @@ export interface NewReviewJob {
   issueNumber?: number;
   changeRequestNumber?: number;
   headSha?: string;
+  commandArgs?: CommandArgs;
   triggerActor: string;
   dedupeKey: string;
   payload: unknown;

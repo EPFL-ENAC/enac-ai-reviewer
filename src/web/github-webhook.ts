@@ -128,6 +128,7 @@ export function registerGithubWebhook(
       issueNumber: trigger.issueNumber,
       changeRequestNumber: trigger.changeRequestNumber,
       headSha: trigger.headSha,
+      commandArgs: trigger.commandArgs,
       triggerActor: trigger.triggerActor,
       dedupeKey: trigger.dedupeKey,
       payload: trigger.payload,

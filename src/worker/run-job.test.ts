@@ -56,6 +56,7 @@ function job(overrides: Partial<ReviewJob> = {}): ReviewJob {
     issueNumber: 42,
     changeRequestNumber: null,
     headSha: null,
+    commandArgs: null,
     triggerActor: 'guilbep',
     dedupeKey: 'k1',
     payload: {},

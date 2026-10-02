@@ -1,5 +1,5 @@
 import type { Sql } from './pool.js';
-import type { NewReviewJob, ReviewJob } from '../domain/types.js';
+import type { CommandArgs, NewReviewJob, ReviewJob } from '../domain/types.js';
 
 interface ReviewJobRow {
   id: string;
@@ -10,6 +10,7 @@ interface ReviewJobRow {
   issue_number: number | null;
   change_request_number: number | null;
   head_sha: string | null;
+  command_args: CommandArgs | null;
   trigger_actor: string;
   dedupe_key: string;
   payload: unknown;
@@ -31,6 +32,7 @@ function toReviewJob(row: ReviewJobRow): ReviewJob {
     issueNumber: row.issue_number,
     changeRequestNumber: row.change_request_number,
     headSha: row.head_sha,
+    commandArgs: row.command_args,
     triggerActor: row.trigger_actor,
     dedupeKey: row.dedupe_key,
     payload: row.payload,
@@ -66,10 +68,10 @@ export async function enqueueJob(sql: Sql, job: NewReviewJob): Promise<ReviewJob
   const rows = await sql<ReviewJobRow[]>`
     insert into review_jobs (
       provider, type, status, repository_full_name, issue_number,
-      change_request_number, head_sha, trigger_actor, dedupe_key, payload
+      change_request_number, head_sha, command_args, trigger_actor, dedupe_key, payload
     ) values (
       ${job.provider}, ${job.type}, 'queued', ${job.repositoryFullName}, ${job.issueNumber ?? null},
-      ${job.changeRequestNumber ?? null}, ${job.headSha ?? null}, ${job.triggerActor}, ${job.dedupeKey}, ${JSON.stringify(job.payload)}::jsonb
+      ${job.changeRequestNumber ?? null}, ${job.headSha ?? null}, ${job.commandArgs ? sql.json(job.commandArgs as import('postgres').JSONValue) : null}, ${job.triggerActor}, ${job.dedupeKey}, ${JSON.stringify(job.payload)}::jsonb
     )
     on conflict (dedupe_key) do nothing
     returning *

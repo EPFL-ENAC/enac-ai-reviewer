@@ -1,5 +1,5 @@
 import { commandForLabel, parseMentionCommand, resolveJobType } from '../domain/commands.js';
-import type { JobType } from '../domain/types.js';
+import type { CommandArgs, JobType } from '../domain/types.js';
 
 export interface MappedTrigger {
   jobType: JobType;
@@ -7,6 +7,7 @@ export interface MappedTrigger {
   issueNumber?: number;
   changeRequestNumber?: number;
   headSha?: string;
+  commandArgs?: CommandArgs;
   commentId?: number;
   triggerActor: string;
   dedupeKey: string;
@@ -50,10 +51,10 @@ function issueCommentTrigger(botLogin: string, deliveryId: string, payload: Issu
   if (actor === botLogin) return null; // never react to our own comments
 
   const isChangeRequest = Boolean(payload.issue.pull_request);
-  const command = parseMentionCommand(botLogin, payload.comment.body);
-  if (!command) return null;
+  const parsed = parseMentionCommand(botLogin, payload.comment.body);
+  if (!parsed) return null;
 
-  const jobType = resolveJobType(command, isChangeRequest ? 'change_request' : 'issue');
+  const jobType = resolveJobType(parsed.command, isChangeRequest ? 'change_request' : 'issue');
   if (!jobType) return null;
 
   const repositoryFullName = payload.repository.full_name;
@@ -64,6 +65,7 @@ function issueCommentTrigger(botLogin: string, deliveryId: string, payload: Issu
     repositoryFullName,
     issueNumber: isChangeRequest ? undefined : number,
     changeRequestNumber: isChangeRequest ? number : undefined,
+    commandArgs: parsed.args,
     commentId: payload.comment.id,
     triggerActor: actor,
     dedupeKey: `github:${repositoryFullName}:${jobType}:${number}:comment-${payload.comment.id}`,

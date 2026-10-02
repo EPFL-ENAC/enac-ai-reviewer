@@ -14,7 +14,7 @@ import {
   postIssueComment,
   updateIssueComment,
 } from '../github/publish.js';
-import type { LlmModel } from '../llm/client.js';
+import { createLlmModel, type LlmModel } from '../llm/client.js';
 import { formatExplainComment, generateExplain } from '../llm/explain.js';
 import { generateReview } from '../llm/review.js';
 import { formatTriageComment, generateTriage } from '../llm/triage.js';
@@ -161,15 +161,24 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
 
   const validAnchors = parseDiffAnchors(context.diff);
 
-  const outcome = await generateReview(ctx.llmModel, {
+  const model = job.commandArgs?.model
+    ? createLlmModel(ctx.config.LLM_BASE_URL, ctx.config.LLM_API_KEY, job.commandArgs.model)
+    : ctx.llmModel;
+
+  const outcome = await generateReview(model, {
     title: context.title,
     body: context.body,
     diff: context.diff,
+    effort: job.commandArgs?.effort,
+    context: job.commandArgs?.context,
+    prompt: job.commandArgs?.prompt,
   });
 
-  await trace(ctx.sql, job.id, 'llm_prompt', { model: ctx.config.LLM_MODEL, prompt: outcome.prompt });
+  const effectiveModel = job.commandArgs?.model ?? ctx.config.LLM_MODEL;
+
+  await trace(ctx.sql, job.id, 'llm_prompt', { model: effectiveModel, prompt: outcome.prompt });
   await trace(ctx.sql, job.id, 'llm_response', {
-    model: ctx.config.LLM_MODEL,
+    model: effectiveModel,
     result: outcome.result,
     inputTokens: outcome.inputTokens,
     outputTokens: outcome.outputTokens,
@@ -206,7 +215,7 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
 
   await recordLlmUsage(ctx.sql, {
     jobId: job.id,
-    model: ctx.config.LLM_MODEL,
+    model: effectiveModel,
     inputTokens: outcome.inputTokens,
     outputTokens: outcome.outputTokens,
   });
