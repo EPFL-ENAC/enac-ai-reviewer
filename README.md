@@ -162,7 +162,7 @@ npm run dev:web        # or dev:worker
 The bot authorizes by **organization**, not by repository: set `ALLOWED_ORGANIZATIONS` to a comma-separated list of GitHub org logins (e.g. `EPFL-ENAC`). The repository must belong to one of those orgs, and the user who triggers the bot must be a member of that org. The GitHub App needs the **Organization members** permission (`members:read`) for the membership check.
 
 To create a tunnel to receive GitHub webhooks on localhost, use [smee](https://smee.io/).
-go to smee's website to create a new channel, then run:
+go to smee's website to create a new channel, then run :
 
 ```text
 npm install --global smee-client
