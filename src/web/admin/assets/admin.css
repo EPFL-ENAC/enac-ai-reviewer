@@ -129,5 +129,16 @@ body { background: var(--bg-subtle); }
 
 .admin-empty { color: var(--fg-muted); font-style: italic; }
 
+.admin-files { display: flex; flex-direction: column; gap: var(--space-2); }
+.admin-file-row { display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; font-size: var(--fs-sm); }
+.admin-file-chip { background: var(--bg-muted); border: var(--border-w) solid var(--border); border-radius: var(--radius); padding: 0.1em 0.4em; font-family: var(--font-mono); font-size: var(--fs-xs); }
+.admin-file-turn { font-weight: var(--w-bold); color: var(--fg-muted); text-transform: uppercase; letter-spacing: .02em; font-size: var(--fs-xs); }
+.admin-file-reason { color: var(--fg-muted); font-style: italic; font-size: var(--fs-sm); }
+.admin-file-total { color: var(--fg-subtle); font-size: var(--fs-xs); }
+.admin-file-status { font-weight: var(--w-bold); text-transform: uppercase; letter-spacing: .02em; font-size: var(--fs-xs); color: var(--fg-muted); }
+.admin-file-status--fetched { color: var(--epfl-green-text); }
+.admin-file-status--duplicate, .admin-file-status--invalid, .admin-file-status--skipped_generated { color: var(--fg-subtle); }
+.admin-file-status--not_found, .admin-file-status--binary_skipped, .admin-file-status--too_large, .admin-file-status--budget_exhausted { color: var(--fg-muted); }
+
 .admin-message { max-width: 34rem; margin: var(--space-5) auto; text-align: center; }
 .admin-message .epfl-alert { text-align: left; margin-bottom: var(--space-4); }

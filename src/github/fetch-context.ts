@@ -73,6 +73,97 @@ export async function fetchChangeRequestContext(
   };
 }
 
+export type FileFetchResult =
+  | { status: 'fetched'; content: string }
+  | { status: 'not_found' }
+  | { status: 'binary_skipped' }
+  | { status: 'too_large' }
+  | { status: 'skipped_generated' }
+  | { status: 'budget_exhausted' };
+
+const MAX_AGENT_FILE_CHARS = 8000;
+const MAX_AGENT_TOTAL_FILE_CHARS = 24000;
+
+/** Filters the file paths the LLM asked for: drops empty, absolute, traversal-style, backslashed and duplicate paths. */
+export function sanitizeRequestedPaths(paths: string[]): string[] {
+  const cleaned: string[] = [];
+  for (const raw of paths) {
+    const path = raw.trim().replace(/^\.\//, '');
+    if (!path) continue;
+    if (path.startsWith('/') || path.includes('\\')) continue;
+    if (path.split('/').includes('..')) continue;
+    if (!cleaned.includes(path)) cleaned.push(path);
+  }
+  return cleaned;
+}
+
+/**
+ * Fetches file contents at a fixed ref for the review agent. Missing, binary, oversized, generated and
+ * budget-exhausted files are reported per path instead of failing the job.
+ */
+export async function fetchFileContents(
+  octokit: InstallationOctokit,
+  target: { owner: string; repo: string; ref: string },
+  paths: string[],
+): Promise<Map<string, FileFetchResult>> {
+  const results = new Map<string, FileFetchResult>();
+  let totalChars = 0;
+
+  for (const path of paths) {
+    if (totalChars >= MAX_AGENT_TOTAL_FILE_CHARS) {
+      results.set(path, { status: 'budget_exhausted' });
+      continue;
+    }
+    if (LOCK_FILE_PATTERNS.some((p) => p.test(path)) || GENERATED_FILE_PATTERNS.some((p) => p.test(path))) {
+      results.set(path, { status: 'skipped_generated' });
+      continue;
+    }
+
+    let file: { type?: string; size?: number; content?: string | null };
+    try {
+      const { data } = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+        owner: target.owner,
+        repo: target.repo,
+        path,
+        ref: target.ref,
+      });
+      if (Array.isArray(data) || (data as { type?: string }).type !== 'file') {
+        results.set(path, { status: 'not_found' });
+        continue;
+      }
+      file = data as { type?: string; size?: number; content?: string | null };
+    } catch (error) {
+      if ((error as { status?: number }).status === 404) {
+        results.set(path, { status: 'not_found' });
+        continue;
+      }
+      throw error;
+    }
+
+    if (!file.content) {
+      results.set(path, { status: (file.size ?? 0) > 0 ? 'too_large' : 'not_found' });
+      continue;
+    }
+
+    const text = Buffer.from(file.content, 'base64').toString('utf8');
+    if (text.includes('\u0000')) {
+      results.set(path, { status: 'binary_skipped' });
+      continue;
+    }
+    if (text.length > MAX_AGENT_FILE_CHARS) {
+      results.set(path, { status: 'too_large' });
+      continue;
+    }
+
+    const remaining = MAX_AGENT_TOTAL_FILE_CHARS - totalChars;
+    const content = text.length > remaining ? `${text.slice(0, remaining)}\n… (truncated)` : text;
+    totalChars += content.length;
+    results.set(path, { status: 'fetched', content });
+  }
+
+  return results;
+}
+
 export async function fetchIssueContext(
   octokit: InstallationOctokit,
   target: { owner: string; repo: string; issueNumber: number },

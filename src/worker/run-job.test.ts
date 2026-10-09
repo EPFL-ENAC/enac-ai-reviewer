@@ -9,6 +9,7 @@ const listReviewComments = vi.fn();
 const createPullRequestReview = vi.fn();
 const fetchIssueContext = vi.fn();
 const fetchChangeRequestContext = vi.fn();
+const fetchFileContents = vi.fn();
 const generateTriage = vi.fn();
 const generateExplain = vi.fn();
 const generateReview = vi.fn();
@@ -26,6 +27,7 @@ vi.mock('../github/publish.js', () => ({
 vi.mock('../github/fetch-context.js', () => ({
   fetchIssueContext: (...args: unknown[]) => fetchIssueContext(...args),
   fetchChangeRequestContext: (...args: unknown[]) => fetchChangeRequestContext(...args),
+  fetchFileContents: (...args: unknown[]) => fetchFileContents(...args),
 }));
 vi.mock('../llm/triage.js', async () => {
   const actual = await vi.importActual<typeof import('../llm/triage.js')>('../llm/triage.js');
@@ -265,6 +267,75 @@ describe('runJob change_request_review', () => {
   it('throws if a change_request_review job is missing its change request number', async () => {
     await expect(runJob(ctx, job({ type: 'change_request_review', changeRequestNumber: null }))).rejects.toThrow(
       /changeRequestNumber/,
+    );
+  });
+
+  it('passes a head-SHA file fetcher and an agent event listener to generateReview', async () => {
+    generateReview.mockResolvedValue({ result: { summary: 's', findings: [] }, inputTokens: 1, outputTokens: 1 });
+
+    await runJob(ctx, reviewJob());
+
+    expect(generateReview).toHaveBeenCalledTimes(1);
+    const [, , fetchFiles, onEvent] = generateReview.mock.calls[0] as unknown as [
+      unknown,
+      unknown,
+      (paths: string[]) => Promise<unknown>,
+      (event: unknown) => unknown,
+    ];
+    expect(typeof fetchFiles).toBe('function');
+    expect(typeof onEvent).toBe('function');
+
+    await fetchFiles(['src/foo.ts']);
+    expect(fetchFileContents).toHaveBeenCalledWith(
+      { fake: 'octokit' },
+      { owner: 'EPFL-ENAC', repo: 'co2-calculator', ref: 'abc123' },
+      ['src/foo.ts'],
+    );
+  });
+
+  it('traces files_requested and files_fetched events emitted by the agent loop', async () => {
+    generateReview.mockImplementation(async (...args: unknown[]) => {
+      const onEvent = args[3] as (event: unknown) => Promise<void>;
+      await onEvent({ type: 'files_requested', turn: 1, paths: ['src/foo.ts'], reason: 'check the interface' });
+      await onEvent({
+        type: 'files_fetched',
+        turn: 1,
+        files: [{ path: 'src/foo.ts', status: 'fetched', chars: 10 }],
+        charsAdded: 10,
+        totalChars: 10,
+      });
+      return {
+        result: { summary: 's', findings: [] },
+        inputTokens: 1,
+        outputTokens: 1,
+        agentTurns: 1,
+        requestedPaths: ['src/foo.ts'],
+        fileChars: 10,
+      };
+    });
+
+    await runJob(ctx, reviewJob());
+
+    expect(insertJobTrace).toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({
+        jobId: 'job-1',
+        type: 'files_requested',
+        payload: { turn: 1, paths: ['src/foo.ts'], reason: 'check the interface' },
+      }),
+    );
+    expect(insertJobTrace).toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({
+        jobId: 'job-1',
+        type: 'files_fetched',
+        payload: {
+          turn: 1,
+          files: [{ path: 'src/foo.ts', status: 'fetched', chars: 10 }],
+          charsAdded: 10,
+          totalChars: 10,
+        },
+      }),
     );
   });
 });
