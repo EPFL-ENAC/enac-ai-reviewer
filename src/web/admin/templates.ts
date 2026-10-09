@@ -1,5 +1,5 @@
 import type { JobTrace } from '../../db/jobs.js';
-import type { ReviewJob } from '../../domain/types.js';
+import type { CommandArgs, ReviewJob } from '../../domain/types.js';
 import type { AdminUser } from './auth.js';
 
 function escapeHtml(raw: string): string {
@@ -261,6 +261,7 @@ export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; base
         <tr><th>Repository</th><td>${repoLink}</td></tr>
         ${targetRow}
         <tr><th>Actor</th><td>${escapeHtml(job.triggerActor)}</td></tr>
+        <tr><th>Parameters</th><td class="admin-args-cell">${formatCommandArgs(job.commandArgs)}</td></tr>
         <tr><th>Dedupe key</th><td><code>${escapeHtml(job.dedupeKey)}</code></td></tr>
         <tr><th>Created</th><td>${formatDate(job.createdAt)}</td></tr>
         <tr><th>Started</th><td>${formatDate(job.startedAt)}</td></tr>
@@ -273,6 +274,14 @@ export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; base
   `;
 
   return layout(`Admin — Job ${job.id.slice(0, 8)}`, body, refreshUrl, opts.user);
+}
+
+function formatCommandArgs(args: CommandArgs | null | undefined): string {
+  const entries = Object.entries(args ?? {}).filter(([, value]) => value != null && value !== '');
+  if (entries.length === 0) return '-';
+  return entries
+    .map(([key, value]) => `<span class="admin-arg"><span class="admin-arg-key">${escapeHtml(key)}</span>${escapeHtml(String(value))}</span>`)
+    .join('');
 }
 
 function formatTracePayload(type: string, payload: unknown): string {

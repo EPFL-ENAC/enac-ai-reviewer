@@ -243,6 +243,14 @@ describe('Admin UI job list', () => {
     expect(res.payload).toContain('issue_triage');
   });
 
+  it('hides the command parameters in the list view', async () => {
+    await enqueueJob(sql, baseJob({ commandArgs: { effort: 'high', prompt: 'focus on security' } }));
+
+    const res = await app.inject({ method: 'GET', url: '/admin/jobs', headers: authHeaders() });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).not.toContain('admin-arg');
+  });
+
   it('returns the JSON job list', async () => {
     const created = await enqueueJob(sql, baseJob());
 
@@ -269,6 +277,24 @@ describe('Admin UI job detail', () => {
     expect(res.payload).toContain(created!.id);
     expect(res.payload).toContain('llm_prompt');
     expect(res.payload).toContain('hello');
+  });
+
+  it('renders the command parameters in the job detail', async () => {
+    const created = await enqueueJob(
+      sql,
+      baseJob({ commandArgs: { effort: 'low', model: 'gpt-4o', context: 'docs', prompt: 'check types' } }),
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain('Parameters');
+    expect(res.payload).toContain('effort');
+    expect(res.payload).toContain('gpt-4o');
+    expect(res.payload).toContain('check types');
   });
 
   it('returns 404 for an unknown job', async () => {
