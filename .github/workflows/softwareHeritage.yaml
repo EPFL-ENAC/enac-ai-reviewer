@@ -1,0 +1,12 @@
+name: Save to Software Heritage
+
+on:
+  schedule:
+    - cron: '0 0 1 * *' # Run on the first day of every month at midnight
+
+jobs:
+  swh-save:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Save to Software Heritage
+        uses: sdruskat/swh-save-action@v1.0.1
