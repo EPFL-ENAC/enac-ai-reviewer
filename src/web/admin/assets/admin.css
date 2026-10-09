@@ -73,6 +73,21 @@ body { background: var(--bg-subtle); }
 .admin-status-dead,
 .admin-status-failed  { background: var(--danger); color: var(--on-primary); }
 
+/* Command parameter tags (--effort, --model, --context, --prompt). */
+.admin-arg {
+  display: inline-block;
+  padding: .1em .4em;
+  margin: 0 var(--space-1) var(--space-1) 0;
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  overflow-wrap: anywhere;
+}
+.admin-arg-key { font-weight: var(--w-bold); color: var(--fg-muted); }
+.admin-arg-key::after { content: ':'; margin-right: .35em; }
+
 .admin-actions { display: flex; gap: var(--space-2); }
 .admin-action-form { margin: 0; }
 .admin-detail-actions { margin-bottom: var(--space-4); }

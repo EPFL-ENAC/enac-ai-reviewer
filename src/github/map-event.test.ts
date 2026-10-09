@@ -42,6 +42,27 @@ describe('mapWebhookEvent', () => {
     expect(trigger?.triggerActor).toBe('alice');
     expect(trigger?.jobType).toBe('issue_triage');
     expect(trigger?.commentId).toBe(1);
+    expect(trigger?.commandArgs).toEqual({});
+  });
+
+  it('forwards review command arguments from an issue comment', () => {
+    const payload = issueCommentPayload({
+      comment: {
+        id: 1,
+        body: `@${BOT_LOGIN} review --effort=high --model=m --context backend --prompt="focus on security"`,
+        user: { login: 'alice' },
+      },
+      issue: { number: 7, pull_request: {} },
+    });
+    const trigger = mapWebhookEvent('issue_comment', 'd1', BOT_LOGIN, payload);
+    expect(trigger).not.toBeNull();
+    expect(trigger?.jobType).toBe('change_request_review');
+    expect(trigger?.commandArgs).toEqual({
+      effort: 'high',
+      model: 'm',
+      context: 'backend',
+      prompt: 'focus on security',
+    });
   });
 
   it('ignores an issue comment with a missing user login', () => {
