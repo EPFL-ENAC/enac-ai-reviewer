@@ -292,5 +292,37 @@ function formatTracePayload(type: string, payload: unknown): string {
     const prompt = (payload as { prompt: unknown }).prompt;
     return `<pre>${escapeHtml(String(prompt))}</pre>`;
   }
+  if (type === 'files_requested' && typeof payload === 'object' && payload !== null) {
+    const { turn, paths, reason } = payload as { turn?: unknown; paths?: unknown; reason?: unknown };
+    const turnLabel = typeof turn === 'number' ? `<span class="admin-file-turn">turn ${turn}</span>` : '';
+    const chips = Array.isArray(paths)
+      ? paths.map((path) => `<code class="admin-file-chip">${escapeHtml(String(path))}</code>`).join(' ')
+      : '';
+    const reasonHtml = reason ? `<div class="admin-file-reason">${escapeHtml(String(reason))}</div>` : '';
+    return `<div class="admin-files">${turnLabel}${chips}${reasonHtml}</div>`;
+  }
+  if (type === 'files_fetched' && typeof payload === 'object' && payload !== null) {
+    const { files, charsAdded, totalChars } = payload as {
+      files?: unknown;
+      charsAdded?: unknown;
+      totalChars?: unknown;
+    };
+    if (!Array.isArray(files) || files.length === 0) {
+      return `<pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
+    }
+    const rows = files
+      .map((file) => {
+        const entry = file as { path?: unknown; status?: unknown; chars?: unknown };
+        const status = escapeHtml(String(entry.status ?? 'unknown'));
+        const chars = typeof entry.chars === 'number' ? ` · ${entry.chars.toLocaleString('en-US')} chars` : '';
+        return `<div class="admin-file-row"><code class="admin-file-chip">${escapeHtml(String(entry.path ?? '?'))}</code><span class="admin-file-status admin-file-status--${status}">${status}</span>${escapeHtml(chars)}</div>`;
+      })
+      .join('');
+    const totals =
+      typeof charsAdded === 'number' && typeof totalChars === 'number'
+        ? `<div class="admin-file-total">+${charsAdded.toLocaleString('en-US')} chars · ${totalChars.toLocaleString('en-US')} total</div>`
+        : '';
+    return `<div class="admin-files">${rows}${totals}</div>`;
+  }
   return `<pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
 }

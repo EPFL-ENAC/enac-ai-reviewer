@@ -6,7 +6,11 @@ import type { WorkerConfig } from '../domain/config.js';
 import type { ReviewJob } from '../domain/types.js';
 import { getInstallationOctokitForRepo, type InstallationOctokit } from '../github/auth.js';
 import { parseDiffAnchors } from '../github/diff-anchors.js';
-import { fetchChangeRequestContext, fetchIssueContext } from '../github/fetch-context.js';
+import {
+  fetchChangeRequestContext,
+  fetchFileContents,
+  fetchIssueContext,
+} from '../github/fetch-context.js';
 import {
   createPullRequestReview,
   listIssueComments,
@@ -16,7 +20,7 @@ import {
 } from '../github/publish.js';
 import { createLlmModel, type LlmModel } from '../llm/client.js';
 import { formatExplainComment, generateExplain } from '../llm/explain.js';
-import { generateReview } from '../llm/review.js';
+import { generateReview, type FileFetcher, type ReviewAgentEventListener } from '../llm/review.js';
 import { formatTriageComment, generateTriage } from '../llm/triage.js';
 import { selectReviewFindings } from './select-review-findings.js';
 
@@ -165,16 +169,35 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
     ? createLlmModel(ctx.config.LLM_BASE_URL, ctx.config.LLM_API_KEY, job.commandArgs.model)
     : ctx.llmModel;
 
-  const outcome = await generateReview(model, {
-    title: context.title,
-    body: context.body,
-    diff: context.diff,
-    effort: job.commandArgs?.effort,
-    context: job.commandArgs?.context,
-    prompt: job.commandArgs?.prompt,
-  });
-
   const effectiveModel = job.commandArgs?.model ?? ctx.config.LLM_MODEL;
+
+  const fetchFiles: FileFetcher = (paths) =>
+    fetchFileContents(octokit, { owner, repo, ref: context.headSha }, paths);
+  const onAgentEvent: ReviewAgentEventListener = (event) => {
+    if (event.type === 'files_requested') {
+      return trace(ctx.sql, job.id, 'files_requested', { turn: event.turn, paths: event.paths, reason: event.reason });
+    }
+    return trace(ctx.sql, job.id, 'files_fetched', {
+      turn: event.turn,
+      files: event.files,
+      charsAdded: event.charsAdded,
+      totalChars: event.totalChars,
+    });
+  };
+
+  const outcome = await generateReview(
+    model,
+    {
+      title: context.title,
+      body: context.body,
+      diff: context.diff,
+      effort: job.commandArgs?.effort,
+      context: job.commandArgs?.context,
+      prompt: job.commandArgs?.prompt,
+    },
+    fetchFiles,
+    onAgentEvent,
+  );
 
   await trace(ctx.sql, job.id, 'llm_prompt', { model: effectiveModel, prompt: outcome.prompt });
   await trace(ctx.sql, job.id, 'llm_response', {

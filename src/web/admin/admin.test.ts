@@ -320,6 +320,74 @@ describe('Admin UI job detail', () => {
     expect(body.job.id).toBe(created!.id);
     expect(body.traces).toHaveLength(1);
   });
+
+  it('renders file request traces as path chips', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, {
+      jobId: created!.id,
+      type: 'files_requested',
+      payload: { turn: 1, paths: ['src/domain/types.ts'], reason: 'check the interface' },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain('admin-file-chip');
+    expect(res.payload).toContain('src/domain/types.ts');
+    expect(res.payload).toContain('check the interface');
+    expect(res.payload).toContain('turn 1');
+    expect(res.payload).not.toContain('&quot;turn&quot;');
+  });
+
+  it('renders file fetch traces with status badges', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, {
+      jobId: created!.id,
+      type: 'files_fetched',
+      payload: {
+        turn: 1,
+        files: [
+          { path: 'src/domain/types.ts', status: 'fetched', chars: 1234 },
+          { path: 'missing.ts', status: 'not_found' },
+        ],
+        charsAdded: 1234,
+        totalChars: 1234,
+      },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain('admin-file-status--fetched');
+    expect(res.payload).toContain('admin-file-status--not_found');
+    expect(res.payload).toContain('1,234 chars');
+    expect(res.payload).toContain('+1,234 chars');
+  });
+
+  it('escapes HTML in file request trace payloads', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, {
+      jobId: created!.id,
+      type: 'files_requested',
+      payload: { turn: 1, paths: ['<script>alert(1)</script>'], reason: '<b>bold</b>' },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).not.toContain('<script>');
+    expect(res.payload).toContain('&lt;script&gt;');
+    expect(res.payload).toContain('&lt;b&gt;bold&lt;/b&gt;');
+  });
 });
 
 describe('Admin UI job actions', () => {
