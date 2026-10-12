@@ -98,6 +98,47 @@ describe('generateReview agent loop', () => {
     ]);
   });
 
+  it('rescues a request turn whose paths arrived as a JSON-encoded string', async () => {
+    const fileContent = 'export interface Foo {}';
+
+    const outcome = await generateReview(
+      fakeModel([
+        {
+          action: 'request_files',
+          paths: '["src/domain/types.ts", "src/llm/review.ts"]',
+          reason: 'the diff is truncated',
+        },
+        { action: 'submit_review', summary: 'ok', findings: [] },
+      ]),
+      baseInput,
+      fetcherFromMap({ 'src/domain/types.ts': fileContent, 'src/llm/review.ts': 'export const x = 1' }),
+    );
+
+    expect(outcome.result).toEqual({ summary: 'ok', findings: [] });
+    expect(outcome.agentTurns).toBe(1);
+    expect(outcome.requestedPaths).toEqual(['src/domain/types.ts', 'src/llm/review.ts']);
+    expect(outcome.prompt).toContain('--- src/domain/types.ts ---');
+    expect(outcome.prompt).toContain(fileContent);
+  });
+
+  it('rescues a submit turn whose findings arrived as a JSON-encoded string', async () => {
+    const finding = {
+      path: 'src/github/fetch-context.ts',
+      line: 147,
+      side: 'RIGHT',
+      confidence: 'high',
+      body: 'use Buffer.byteLength for byte-accurate budgets',
+    };
+
+    const outcome = await generateReview(
+      fakeModel([{ action: 'submit_review', summary: 'ok', findings: JSON.stringify([finding]) }]),
+      baseInput,
+    );
+
+    expect(outcome.result).toEqual({ summary: 'ok', findings: [finding] });
+    expect(outcome.agentTurns).toBe(0);
+  });
+
   it('does not re-fetch a path that was already provided', async () => {
     const calls: string[][] = [];
     const countingFetcher: FileFetcher = async (paths) => {
@@ -184,7 +225,27 @@ describe('generateReview agent loop', () => {
       summary: 's',
       findings: [],
     });
+    expect(ReviewTurnSchema.parse({ action: 'request_files', paths: '["a.ts"]' })).toEqual({
+      action: 'request_files',
+      paths: ['a.ts'],
+    });
+    expect(ReviewTurnSchema.parse({ action: 'request_files', paths: 'a.ts' })).toEqual({
+      action: 'request_files',
+      paths: ['a.ts'],
+    });
+    expect(
+      ReviewTurnSchema.parse({
+        action: 'submit_review',
+        summary: 's',
+        findings: '[{"path":"p.ts","line":1,"side":"RIGHT","confidence":"high","body":"b"}]',
+      }),
+    ).toEqual({
+      action: 'submit_review',
+      summary: 's',
+      findings: [{ path: 'p.ts', line: 1, side: 'RIGHT', confidence: 'high', body: 'b' }],
+    });
     expect(() => ReviewTurnSchema.parse({ action: 'request_files', paths: [] })).toThrow();
+    expect(() => ReviewTurnSchema.parse({ action: 'request_files', paths: '' })).toThrow();
     expect(() => ReviewTurnSchema.parse({ action: 'unknown_action' })).toThrow();
     expect(() => ReviewResultSchema.parse({ summary: 's' })).toThrow();
   });

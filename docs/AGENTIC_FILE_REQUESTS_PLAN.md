@@ -91,7 +91,7 @@ Constants in `fetch-context.ts`, following the existing `MAX_*` style (`MAX_DIFF
 | `MAX_AGENT_FILE_CHARS`          | 8 000   | Files above this are rejected (`too_large`)    |
 | `MAX_AGENT_TOTAL_FILE_CHARS`    | 24 000  | Cumulative file-character budget per job       |
 
-The union schema itself caps `paths` at `MAX_REQUESTED_FILES_PER_TURN`, so oversized requests fail schema validation rather than relying on runtime checks.
+The union schema itself caps `paths` at `MAX_REQUESTED_FILES_PER_TURN`, so oversized requests fail schema validation rather than relying on runtime checks. A `paths` or `findings` value that arrives as a JSON-encoded string (a common model slip that otherwise fails the whole job) is coerced back to an array before validation; for `paths`, a bare non-empty string is treated as a single path.
 
 ## 6. Data flow
 

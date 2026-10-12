@@ -13,9 +13,24 @@ export const ReviewFindingSchema = z.object({
 
 export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
 
+function coerceStringToArray(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  let parsed: unknown = null;
+  if (trimmed.startsWith('[')) {
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      parsed = null;
+    }
+  }
+  if (Array.isArray(parsed)) return parsed;
+  return trimmed.length > 0 ? [trimmed] : value;
+}
+
 export const ReviewResultSchema = z.object({
   summary: z.string(),
-  findings: z.array(ReviewFindingSchema).max(20),
+  findings: z.preprocess(coerceStringToArray, z.array(ReviewFindingSchema).max(20)),
 });
 
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
@@ -44,7 +59,7 @@ const MAX_REQUESTED_FILES_PER_TURN = 5;
 
 export const FilesRequestTurnSchema = z.object({
   action: z.literal('request_files'),
-  paths: z.array(z.string()).min(1).max(MAX_REQUESTED_FILES_PER_TURN),
+  paths: z.preprocess(coerceStringToArray, z.array(z.string()).min(1).max(MAX_REQUESTED_FILES_PER_TURN)),
   reason: z.string().optional(),
 });
 
@@ -53,7 +68,7 @@ export type FilesRequestTurn = z.infer<typeof FilesRequestTurnSchema>;
 export const SubmitTurnSchema = z.object({
   action: z.literal('submit_review'),
   summary: z.string(),
-  findings: z.array(ReviewFindingSchema).max(20),
+  findings: z.preprocess(coerceStringToArray, z.array(ReviewFindingSchema).max(20)),
 });
 
 export type SubmitTurn = z.infer<typeof SubmitTurnSchema>;
