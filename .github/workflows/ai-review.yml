@@ -1,0 +1,19 @@
+name: AI review
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  request-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask enac-ai-reviewer to review
+        env:
+          GH_TOKEN: ${{ secrets.REVIEWER_PAT }}
+        run: |
+          gh pr comment -R "$GITHUB_REPOSITORY" "${{ github.event.pull_request.number }}" \
+            --body "@enac-ai-reviewer review"
