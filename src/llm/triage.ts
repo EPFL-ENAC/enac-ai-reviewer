@@ -1,6 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { LlmModel } from './client.js';
+import type { LlmEventListener } from './events.js';
 
 export const TriageResultSchema = z.object({
   likelyType: z.enum(['bug', 'feature', 'question', 'docs', 'other']),
@@ -47,16 +48,28 @@ Recent comments:
 ${comments}`;
 }
 
-export async function generateTriage(model: LlmModel, input: TriageInput): Promise<TriageOutcome> {
+export async function generateTriage(
+  model: LlmModel,
+  input: TriageInput,
+  onEvent?: LlmEventListener,
+): Promise<TriageOutcome> {
+  const prompt = buildPrompt(input);
+  await onEvent?.({ type: 'llm_prompt', prompt });
   const { object, usage } = await generateObject({
     model,
     schema: TriageResultSchema,
-    prompt: buildPrompt(input),
+    prompt,
+  });
+  await onEvent?.({
+    type: 'llm_response',
+    result: object,
+    inputTokens: usage.promptTokens,
+    outputTokens: usage.completionTokens,
   });
 
   return {
     result: object,
-    prompt: buildPrompt(input),
+    prompt,
     inputTokens: usage.promptTokens,
     outputTokens: usage.completionTokens,
   };

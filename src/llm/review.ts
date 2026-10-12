@@ -1,6 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { LlmModel } from './client.js';
+import type { LlmEvent } from './events.js';
 import { sanitizeRequestedPaths, type FileFetchResult } from '../github/fetch-context.js';
 
 export const ReviewFindingSchema = z.object({
@@ -87,7 +88,8 @@ export type ReviewAgentEvent =
       files: { path: string; status: string; chars?: number }[];
       charsAdded: number;
       totalChars: number;
-    };
+    }
+  | LlmEvent;
 
 export type ReviewAgentEventListener = (event: ReviewAgentEvent) => void | Promise<void>;
 
@@ -144,10 +146,17 @@ export async function generateReview(
 ): Promise<ReviewOutcome> {
   if (!fetchFiles) {
     const prompt = buildPrompt(input);
+    await onEvent?.({ type: 'llm_prompt', prompt });
     const { object, usage } = await generateObject({
       model,
       schema: ReviewResultSchema,
       prompt,
+    });
+    await onEvent?.({
+      type: 'llm_response',
+      result: object,
+      inputTokens: usage.promptTokens,
+      outputTokens: usage.completionTokens,
     });
 
     return {
@@ -173,10 +182,17 @@ export async function generateReview(
     if (agentTurns >= MAX_AGENT_TURNS) {
       const forcedPrompt = `${prompt}\n\nYou have used all ${MAX_AGENT_TURNS} file request turns and no further files
 can be provided. Submit your final review now.`;
+      await onEvent?.({ type: 'llm_prompt', prompt: forcedPrompt });
       const { object, usage } = await generateObject({
         model,
         schema: ReviewResultSchema,
         prompt: forcedPrompt,
+      });
+      await onEvent?.({
+        type: 'llm_response',
+        result: object,
+        inputTokens: usage.promptTokens,
+        outputTokens: usage.completionTokens,
       });
       inputTokens += usage.promptTokens;
       outputTokens += usage.completionTokens;
@@ -192,10 +208,17 @@ can be provided. Submit your final review now.`;
       };
     }
 
+    await onEvent?.({ type: 'llm_prompt', prompt });
     const { object: turn, usage } = await generateObject({
       model,
       schema: ReviewTurnSchema,
       prompt,
+    });
+    await onEvent?.({
+      type: 'llm_response',
+      result: turn,
+      inputTokens: usage.promptTokens,
+      outputTokens: usage.completionTokens,
     });
     inputTokens += usage.promptTokens;
     outputTokens += usage.completionTokens;

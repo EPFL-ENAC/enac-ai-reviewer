@@ -227,7 +227,7 @@ export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; base
     targetRow += `<tr><th>Head SHA</th><td><code>${escapeHtml(job.headSha)}</code></td></tr>`;
   }
 
-  const tracesHtml = opts.traces
+  const tracesHtml = [...opts.traces].reverse()
     .map((trace) => {
       const payloadHtml = formatTracePayload(trace.type, trace.payload);
       return `<div class="admin-trace">

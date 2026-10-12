@@ -87,6 +87,13 @@ describe('generateReview agent loop', () => {
     expect(outcome.prompt).toContain(fileContent);
 
     expect(events).toEqual([
+      { type: 'llm_prompt', prompt: expect.stringContaining('PR title: t') },
+      {
+        type: 'llm_response',
+        result: { action: 'request_files', paths: ['src/domain/types.ts'], reason: 'check the interface' },
+        inputTokens: 10,
+        outputTokens: 5,
+      },
       { type: 'files_requested', turn: 1, paths: ['src/domain/types.ts'], reason: 'check the interface' },
       {
         type: 'files_fetched',
@@ -94,6 +101,13 @@ describe('generateReview agent loop', () => {
         files: [{ path: 'src/domain/types.ts', status: 'fetched', chars: fileContent.length }],
         charsAdded: fileContent.length,
         totalChars: fileContent.length,
+      },
+      { type: 'llm_prompt', prompt: expect.stringContaining('Additional files you requested') },
+      {
+        type: 'llm_response',
+        result: { action: 'submit_review', summary: 'ok', findings: [] },
+        inputTokens: 10,
+        outputTokens: 5,
       },
     ]);
   });

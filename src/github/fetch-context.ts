@@ -21,6 +21,7 @@ export interface ChangeRequestContext {
   body: string;
   headSha: string;
   diff: string;
+  fullDiff: string;
 }
 
 const LOCK_FILE_PATTERNS = [
@@ -65,11 +66,14 @@ export async function fetchChangeRequestContext(
     mediaType: { format: 'diff' },
   });
 
+  const filteredDiff = filterDiff(rawDiff.data as unknown as string);
+
   return {
     title: pr.title,
     body: truncate(pr.body ?? '', MAX_BODY_CHARS),
     headSha: pr.head.sha,
-    diff: truncate(filterDiff(rawDiff.data as unknown as string), MAX_DIFF_CHARS),
+    diff: truncate(filteredDiff, MAX_DIFF_CHARS),
+    fullDiff: filteredDiff,
   };
 }
 

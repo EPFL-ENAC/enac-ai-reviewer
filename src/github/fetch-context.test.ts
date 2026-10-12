@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InstallationOctokit } from './auth.js';
-import { fetchFileContents, filterDiff, sanitizeRequestedPaths } from './fetch-context.js';
+import { fetchChangeRequestContext, fetchFileContents, filterDiff, sanitizeRequestedPaths } from './fetch-context.js';
 
 function section(path: string, body = 'hunk content'): string {
   return `diff --git a/${path} b/${path}\nindex 111..222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,1 +1,1 @@\n-${body}\n+${body} changed\n`;
@@ -32,6 +32,24 @@ describe('filterDiff', () => {
       const result = filterDiff(section('src/index.ts') + section(path));
       expect(result, `expected ${path} to be dropped`).not.toContain(path);
     }
+  });
+});
+
+describe('fetchChangeRequestContext', () => {
+  it('returns the filtered diff truncated for the prompt and the full diff for anchoring', async () => {
+    const longLine = 'x'.repeat(30000);
+    const diff = `diff --git a/src/index.ts b/src/index.ts\nindex 111..222 100644\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1,1 +1,1 @@\n-${longLine}\n+${longLine} changed\n`;
+    const octokit = {
+      request: async (_route: string, params: Record<string, unknown>) =>
+        params.mediaType ? { data: diff } : { data: { title: 't', body: 'pr body', head: { sha: 'abc123' } } },
+    } as unknown as InstallationOctokit;
+
+    const context = await fetchChangeRequestContext(octokit, { owner: 'EPFL-ENAC', repo: 'co2-calculator', number: 7 });
+
+    expect(context.headSha).toBe('abc123');
+    expect(context.fullDiff).toBe(diff);
+    expect(context.diff.length).toBeLessThan(diff.length);
+    expect(context.diff).toContain('… (truncated)');
   });
 });
 

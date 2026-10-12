@@ -19,6 +19,7 @@ import {
   updateIssueComment,
 } from '../github/publish.js';
 import { createLlmModel, type LlmModel } from '../llm/client.js';
+import type { LlmEventListener } from '../llm/events.js';
 import { formatExplainComment, generateExplain } from '../llm/explain.js';
 import { generateReview, type FileFetcher, type ReviewAgentEventListener } from '../llm/review.js';
 import { formatTriageComment, generateTriage } from '../llm/triage.js';
@@ -37,6 +38,18 @@ const EXPLAIN_COMMENT_MARKER = '### AI summary';
 
 async function trace(sql: Sql, jobId: string, type: string, payload?: unknown): Promise<void> {
   await insertJobTrace(sql, { jobId, type, payload });
+}
+
+function llmTraceMapper(sql: Sql, jobId: string, model: string): LlmEventListener {
+  return (event) =>
+    trace(
+      sql,
+      jobId,
+      event.type,
+      event.type === 'llm_prompt'
+        ? { model, prompt: event.prompt }
+        : { model, result: event.result, inputTokens: event.inputTokens, outputTokens: event.outputTokens },
+    );
 }
 
 /** Anti-spam: update our own prior comment carrying this marker instead of posting a new one every re-trigger. */
@@ -74,20 +87,16 @@ async function runIssueTriage(ctx: WorkerContext, job: ReviewJob, owner: string,
     commentCount: context.comments.length,
   });
 
-  const outcome = await generateTriage(ctx.llmModel, {
-    title: context.title,
-    body: context.body,
-    existingLabels: context.labels,
-    comments: context.comments,
-  });
-
-  await trace(ctx.sql, job.id, 'llm_prompt', { model: ctx.config.LLM_MODEL, prompt: outcome.prompt });
-  await trace(ctx.sql, job.id, 'llm_response', {
-    model: ctx.config.LLM_MODEL,
-    result: outcome.result,
-    inputTokens: outcome.inputTokens,
-    outputTokens: outcome.outputTokens,
-  });
+  const outcome = await generateTriage(
+    ctx.llmModel,
+    {
+      title: context.title,
+      body: context.body,
+      existingLabels: context.labels,
+      comments: context.comments,
+    },
+    llmTraceMapper(ctx.sql, job.id, ctx.config.LLM_MODEL),
+  );
 
   await postOrUpdateMarkedComment(ctx, octokit, target, TRIAGE_COMMENT_MARKER, formatTriageComment(outcome.result));
   await trace(ctx.sql, job.id, 'github_action', {
@@ -119,19 +128,15 @@ async function runChangeRequestExplain(ctx: WorkerContext, job: ReviewJob, owner
     diffLength: context.diff.length,
   });
 
-  const outcome = await generateExplain(ctx.llmModel, {
-    title: context.title,
-    body: context.body,
-    diff: context.diff,
-  });
-
-  await trace(ctx.sql, job.id, 'llm_prompt', { model: ctx.config.LLM_MODEL, prompt: outcome.prompt });
-  await trace(ctx.sql, job.id, 'llm_response', {
-    model: ctx.config.LLM_MODEL,
-    result: outcome.result,
-    inputTokens: outcome.inputTokens,
-    outputTokens: outcome.outputTokens,
-  });
+  const outcome = await generateExplain(
+    ctx.llmModel,
+    {
+      title: context.title,
+      body: context.body,
+      diff: context.diff,
+    },
+    llmTraceMapper(ctx.sql, job.id, ctx.config.LLM_MODEL),
+  );
 
   await postOrUpdateMarkedComment(ctx, octokit, target, EXPLAIN_COMMENT_MARKER, formatExplainComment(outcome.result));
   await trace(ctx.sql, job.id, 'github_action', {
@@ -163,7 +168,7 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
     diffLength: context.diff.length,
   });
 
-  const validAnchors = parseDiffAnchors(context.diff);
+  const validAnchors = parseDiffAnchors(context.fullDiff);
 
   const model = job.commandArgs?.model
     ? createLlmModel(ctx.config.LLM_BASE_URL, ctx.config.LLM_API_KEY, job.commandArgs.model)
@@ -173,16 +178,20 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
 
   const fetchFiles: FileFetcher = (paths) =>
     fetchFileContents(octokit, { owner, repo, ref: context.headSha }, paths);
+  const traceLlmEvent = llmTraceMapper(ctx.sql, job.id, effectiveModel);
   const onAgentEvent: ReviewAgentEventListener = (event) => {
     if (event.type === 'files_requested') {
       return trace(ctx.sql, job.id, 'files_requested', { turn: event.turn, paths: event.paths, reason: event.reason });
     }
-    return trace(ctx.sql, job.id, 'files_fetched', {
-      turn: event.turn,
-      files: event.files,
-      charsAdded: event.charsAdded,
-      totalChars: event.totalChars,
-    });
+    if (event.type === 'files_fetched') {
+      return trace(ctx.sql, job.id, 'files_fetched', {
+        turn: event.turn,
+        files: event.files,
+        charsAdded: event.charsAdded,
+        totalChars: event.totalChars,
+      });
+    }
+    return traceLlmEvent(event);
   };
 
   const outcome = await generateReview(
@@ -198,14 +207,6 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
     fetchFiles,
     onAgentEvent,
   );
-
-  await trace(ctx.sql, job.id, 'llm_prompt', { model: effectiveModel, prompt: outcome.prompt });
-  await trace(ctx.sql, job.id, 'llm_response', {
-    model: effectiveModel,
-    result: outcome.result,
-    inputTokens: outcome.inputTokens,
-    outputTokens: outcome.outputTokens,
-  });
 
   const existingComments = await listReviewComments(octokit, { owner, repo, pullNumber });
   const existingAnchors = new Set(

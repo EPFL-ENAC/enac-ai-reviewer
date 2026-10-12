@@ -149,7 +149,7 @@ describe('runJob change_request_explain', () => {
     job({ type: 'change_request_explain', issueNumber: null, changeRequestNumber: 7 });
 
   beforeEach(() => {
-    fetchChangeRequestContext.mockResolvedValue({ title: 't', body: 'b', headSha: 'abc123', diff: 'diff --git a/x b/x' });
+    fetchChangeRequestContext.mockResolvedValue({ title: 't', body: 'b', headSha: 'abc123', diff: 'diff --git a/x b/x', fullDiff: 'diff --git a/x b/x' });
     generateExplain.mockResolvedValue({ result: explainResult, inputTokens: 200, outputTokens: 80 });
   });
 
@@ -196,7 +196,7 @@ describe('runJob change_request_review', () => {
   const reviewJob = () => job({ type: 'change_request_review', issueNumber: null, changeRequestNumber: 7 });
 
   beforeEach(() => {
-    fetchChangeRequestContext.mockResolvedValue({ title: 't', body: 'b', headSha: 'abc123', diff: DIFF });
+    fetchChangeRequestContext.mockResolvedValue({ title: 't', body: 'b', headSha: 'abc123', diff: DIFF, fullDiff: DIFF });
     listReviewComments.mockResolvedValue([]);
   });
 

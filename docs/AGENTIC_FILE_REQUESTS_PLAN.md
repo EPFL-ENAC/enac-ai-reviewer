@@ -79,6 +79,7 @@ New in `src/github/fetch-context.ts`:
 - Loop-level statuses (not from `fetchFileContents`): `duplicate` (already provided in a previous turn) and `invalid` (dropped by `sanitizeRequestedPaths`).
 - Skip paths matching the existing `GENERATED_FILE_PATTERNS` / `LOCK_FILE_PATTERNS` (reported as `skipped_generated`).
 - Requests are issued at `ref = context.headSha` so the agent always reads the exact code under review.
+- Findings are anchored against `fullDiff` (the lock/generated-filtered, but untruncated diff); only the prompt receives the `MAX_DIFF_CHARS`-truncated version, so content fetched through file requests can still be cited past the prompt cut.
 
 ## 5. Limits
 
@@ -97,7 +98,7 @@ The union schema itself caps `paths` at `MAX_REQUESTED_FILES_PER_TURN`, so overs
 
 ```text
 runChangeRequestReview (worker)
-  fetchChangeRequestContext        → title / body / diff / headSha
+  fetchChangeRequestContext        → title / body / diff (truncated) / fullDiff / headSha
   generateReview(model, input, fetchFiles)
     loop:
       generateObject(ReviewTurnSchema, prompt)
@@ -151,7 +152,7 @@ plus, when applicable: `These files could not be fetched: [...]` / `Already prov
 
 - `files_requested` (per request turn): paths, reason, turn index.
 - `files_fetched` (per request turn): per-path status (`fetched` / `not_found` / `binary_skipped` / `too_large` / `skipped_generated` / `invalid` / `duplicate` / `budget_exhausted`), chars added, cumulative chars.
-- Existing `llm_prompt` / `llm_response` traces keep their current post-hoc shape: the final prompt (which contains all appended file sections) and the final result, with token counts summed across turns.
+- `llm_prompt` / `llm_response` are emitted per LLM call at the moment the prompt is sent and the response is received (through the same event listener the worker maps to traces): payloads `{ model, prompt }` and `{ model, result, inputTokens, outputTokens }` with per-call usage. Job-level token totals still go to `recordLlmUsage`.
 
 ### Admin UI display
 

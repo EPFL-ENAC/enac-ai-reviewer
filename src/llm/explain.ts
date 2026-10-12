@@ -1,6 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { LlmModel } from './client.js';
+import type { LlmEventListener } from './events.js';
 
 export const ExplainResultSchema = z.object({
   summary: z.string(),
@@ -36,16 +37,28 @@ Diff (lock files and generated files already excluded):
 ${input.diff}`;
 }
 
-export async function generateExplain(model: LlmModel, input: ExplainInput): Promise<ExplainOutcome> {
+export async function generateExplain(
+  model: LlmModel,
+  input: ExplainInput,
+  onEvent?: LlmEventListener,
+): Promise<ExplainOutcome> {
+  const prompt = buildPrompt(input);
+  await onEvent?.({ type: 'llm_prompt', prompt });
   const { object, usage } = await generateObject({
     model,
     schema: ExplainResultSchema,
-    prompt: buildPrompt(input),
+    prompt,
+  });
+  await onEvent?.({
+    type: 'llm_response',
+    result: object,
+    inputTokens: usage.promptTokens,
+    outputTokens: usage.completionTokens,
   });
 
   return {
     result: object,
-    prompt: buildPrompt(input),
+    prompt,
     inputTokens: usage.promptTokens,
     outputTokens: usage.completionTokens,
   };
