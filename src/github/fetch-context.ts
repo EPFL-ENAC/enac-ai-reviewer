@@ -34,7 +34,7 @@ const LOCK_FILE_PATTERNS = [
   /poetry\.lock$/,
 ];
 const GENERATED_FILE_PATTERNS = [/\.min\.(js|css)$/, /(^|\/)dist\//, /\.generated\./, /(^|\/)vendor\//];
-const MAX_DIFF_CHARS = 20000;
+const MAX_DIFF_CHARS = 100000;
 
 /** Drops diff sections for lock files and generated files (PRD §12: "skip lock files and generated files"). */
 export function filterDiff(diff: string): string {
