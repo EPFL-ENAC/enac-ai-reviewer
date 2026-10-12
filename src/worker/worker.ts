@@ -3,7 +3,9 @@ import pino from 'pino';
 import { claimJob, completeJob, failJob, insertJobTrace, killJob, requeueStaleRunningJobs } from '../db/jobs.js';
 import { createPool } from '../db/pool.js';
 import { loadWorkerConfig } from '../domain/config.js';
-import { createGithubApp } from '../github/auth.js';
+import type { ReviewJob } from '../domain/types.js';
+import { setAcknowledgmentReaction } from '../github/acknowledge.js';
+import { createGithubApp, getInstallationOctokitForRepo } from '../github/auth.js';
 import { isPermanentGithubError } from '../github/classify-error.js';
 import { createLlmModel } from '../llm/client.js';
 import { runJob } from './run-job.js';
@@ -35,27 +37,97 @@ async function touchHeartbeat(): Promise<void> {
   }
 }
 
+const MAX_ERROR_DEPTH = 3;
+const MAX_ERROR_STRING_LENGTH = 500;
+
+function truncateForLogs(value: string): string {
+  return value.length > MAX_ERROR_STRING_LENGTH ? `${value.slice(0, MAX_ERROR_STRING_LENGTH)}…` : value;
+}
+
+function serializeError(err: unknown, depth = 0): unknown {
+  if (typeof err === 'string') return truncateForLogs(err);
+  if (err === null || typeof err !== 'object' || Array.isArray(err)) return err;
+  if (depth >= MAX_ERROR_DEPTH) return String(err);
+
+  const source = err as { name?: string; message?: string; stack?: string; cause?: unknown } & Record<string, unknown>;
+  const serialized: Record<string, unknown> = {
+    name: source.name ?? source.constructor?.name ?? typeof err,
+    message: source.message,
+  };
+  if (typeof source.stack === 'string') serialized.stack = source.stack;
+  for (const key of ['status', 'statusCode', 'code', 'url', 'requestId']) {
+    if (source[key] !== undefined) serialized[key] = source[key];
+  }
+  if (typeof source.responseBody === 'string') serialized.responseBody = truncateForLogs(source.responseBody);
+  if (typeof source.request === 'object' && source.request !== null) {
+    const { method, url } = source.request as { method?: unknown; url?: unknown };
+    if (method !== undefined || url !== undefined) serialized.request = { method, url };
+  }
+  if (source.cause !== undefined) serialized.cause = serializeError(source.cause, depth + 1);
+  return serialized;
+}
+
+async function updateAcknowledgment(job: ReviewJob, content: '+1' | '-1'): Promise<void> {
+  try {
+    const octokit = await getInstallationOctokitForRepo(githubApp, job.repositoryFullName);
+    const payload = (job.payload ?? null) as { comment?: { id?: number } } | null;
+    const commentId = typeof payload?.comment?.id === 'number' ? payload.comment.id : undefined;
+    await setAcknowledgmentReaction(
+      octokit,
+      job.repositoryFullName,
+      {
+        commentId,
+        issueNumber: job.issueNumber ?? undefined,
+        changeRequestNumber: job.changeRequestNumber ?? undefined,
+      },
+      config.GITHUB_BOT_LOGIN,
+      content,
+    );
+  } catch (err) {
+    logger.warn({ jobId: job.id, content, err: serializeError(err) }, 'failed to update acknowledgment reaction');
+  }
+}
+
 async function tick(): Promise<void> {
   const job = await claimJob(sql);
   if (!job) return;
 
-  logger.info({ jobId: job.id, jobType: job.type, repositoryFullName: job.repositoryFullName }, 'claimed job');
+  const startedAt = Date.now();
+  const jobContext = { jobId: job.id, jobType: job.type, repositoryFullName: job.repositoryFullName };
+  logger.info({ ...jobContext, attempts: job.attempts }, 'claimed job');
 
   try {
     await runJob({ sql, githubApp, config, logger, llmModel }, job);
     await completeJob(sql, job.id);
     await insertJobTrace(sql, { jobId: job.id, type: 'job_completed' });
-    logger.info({ jobId: job.id }, 'job completed');
+    logger.info({ ...jobContext, durationMs: Date.now() - startedAt }, 'job completed');
+    if (job.attempts > 1) await updateAcknowledgment(job, '+1');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await insertJobTrace(sql, { jobId: job.id, type: 'job_failed', payload: { message, permanent: isPermanentGithubError(err) } });
-    if (isPermanentGithubError(err)) {
+    const permanent = isPermanentGithubError(err);
+    const failureContext = {
+      ...jobContext,
+      attempts: job.attempts,
+      durationMs: Date.now() - startedAt,
+      message,
+      permanent,
+      err: serializeError(err),
+    };
+
+    logger[permanent ? 'error' : 'warn'](failureContext, 'job failed');
+
+    try {
+      await insertJobTrace(sql, { jobId: job.id, type: 'job_failed', payload: { message, permanent } });
+    } catch (traceErr) {
+      logger.error({ jobId: job.id, err: serializeError(traceErr) }, 'failed to record job_failed trace');
+    }
+
+    if (permanent) {
       await killJob(sql, job.id, message);
-      logger.error({ jobId: job.id, err: message }, 'job permanently failed');
     } else {
       await failJob(sql, job.id, message);
-      logger.warn({ jobId: job.id, err: message, attempts: job.attempts }, 'job failed, may retry');
     }
+    await updateAcknowledgment(job, '-1');
   }
 }
 
