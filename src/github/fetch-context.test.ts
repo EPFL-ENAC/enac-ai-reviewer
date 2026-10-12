@@ -37,7 +37,7 @@ describe('filterDiff', () => {
 
 describe('fetchChangeRequestContext', () => {
   it('returns the filtered diff truncated for the prompt and the full diff for anchoring', async () => {
-    const longLine = 'x'.repeat(30000);
+    const longLine = 'x'.repeat(60000);
     const diff = `diff --git a/src/index.ts b/src/index.ts\nindex 111..222 100644\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1,1 +1,1 @@\n-${longLine}\n+${longLine} changed\n`;
     const octokit = {
       request: async (_route: string, params: Record<string, unknown>) =>
@@ -116,7 +116,7 @@ describe('fetchFileContents', () => {
   });
 
   it('reports files above the per-file budget as too large', async () => {
-    const big = 'a'.repeat(9000);
+    const big = 'a'.repeat(41000);
     const octokit = octokitStub(async () => ({ type: 'file', size: big.length, content: encode(big) }));
     const result = await fetchFileContents(octokit, target, ['big.ts']);
     expect(result.get('big.ts')).toEqual({ status: 'too_large' });
@@ -141,7 +141,7 @@ describe('fetchFileContents', () => {
   });
 
   it('exhausts the cumulative budget across files', async () => {
-    const full = 'a'.repeat(8000);
+    const full = 'a'.repeat(40000);
     const octokit = octokitStub(async () => ({ type: 'file', size: full.length, content: encode(full) }));
     const result = await fetchFileContents(octokit, target, ['a.ts', 'b.ts', 'c.ts', 'd.ts']);
     expect(result.get('a.ts')).toMatchObject({ status: 'fetched' });
