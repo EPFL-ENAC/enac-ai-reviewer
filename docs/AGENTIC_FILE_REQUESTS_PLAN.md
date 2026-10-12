@@ -70,14 +70,14 @@ New in `src/github/fetch-context.ts`:
 
 - `sanitizeRequestedPaths(paths: string[]): string[]` — pure function; rejects empty strings, absolute paths (leading `/`), `..` segments, backslashes; strips a leading `./`. Deduplicates. (The contents API is already scoped to the repo, but validation prevents junk requests and traversal-style noise.)
 - `fetchFileContents(octokit, { owner, repo, ref }, paths): Promise<Map<string, FileFetchResult>>` where `FileFetchResult` is one of:
-  - `{ status: 'fetched', content: string }` — truncated to `MAX_AGENT_FILE_CHARS` (or the remaining cumulative budget),
+  - `{ status: 'fetched', content: string }` — truncated to the remaining cumulative budget (never to `MAX_AGENT_FILE_CHARS`; files above it are rejected as `too_large`),
   - `{ status: 'not_found' }` — 404, directory listing, non-file entry or empty file,
   - `{ status: 'binary_skipped' }` — base64 payload does not decode to valid UTF-8 / contains NUL bytes,
   - `{ status: 'too_large' }` — exceeds the per-file budget (or too big for the contents API with bytes on disk),
   - `{ status: 'skipped_generated' }` — matches the existing `GENERATED_FILE_PATTERNS` / `LOCK_FILE_PATTERNS`,
   - `{ status: 'budget_exhausted' }` — cumulative budget spent.
 - Loop-level statuses (not from `fetchFileContents`): `duplicate` (already provided in a previous turn) and `invalid` (dropped by `sanitizeRequestedPaths`).
-- Skip paths matching the existing `GENERATED_FILE_PATTERNS` / `LOCK_FILE_PATTERNS` (reported as `not_fetched` with a reason).
+- Skip paths matching the existing `GENERATED_FILE_PATTERNS` / `LOCK_FILE_PATTERNS` (reported as `skipped_generated`).
 - Requests are issued at `ref = context.headSha` so the agent always reads the exact code under review.
 
 ## 5. Limits
@@ -88,7 +88,7 @@ Constants in `fetch-context.ts`, following the existing `MAX_*` style (`MAX_DIFF
 |---------------------------------|---------|------------------------------------------------|
 | `MAX_AGENT_TURNS`               | 3       | Max `request_files` turns per job              |
 | `MAX_REQUESTED_FILES_PER_TURN`  | 5       | Max paths per `request_files` turn             |
-| `MAX_AGENT_FILE_CHARS`          | 8 000   | Per-file truncation                            |
+| `MAX_AGENT_FILE_CHARS`          | 8 000   | Files above this are rejected (`too_large`)    |
 | `MAX_AGENT_TOTAL_FILE_CHARS`    | 24 000  | Cumulative file-character budget per job       |
 
 The union schema itself caps `paths` at `MAX_REQUESTED_FILES_PER_TURN`, so oversized requests fail schema validation rather than relying on runtime checks.
