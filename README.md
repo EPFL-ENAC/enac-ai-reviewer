@@ -20,6 +20,41 @@ npm run start:worker   # claim Postgres job → call LLM → post back to GitHub
 
 All v1 job types are implemented and tested: `@enac-ai-reviewer triage` (issues), `explain` and `review` (pull requests), triggered by mention, label, or assignment.
 
+## Triggering from a GitHub workflow
+
+Besides mention, label, or assignment, a workflow can trigger the bot by posting a comment that mentions it. [`.github/workflows/ai-review.yml`](.github/workflows/ai-review.yml) runs on every new pull request and comments `@enac-ai-reviewer review`:
+
+```yaml
+name: AI review
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  request-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask enac-ai-reviewer to review
+        env:
+          GH_TOKEN: ${{ secrets.REVIEWER_PAT }}
+        run: |
+          gh pr comment -R "$GITHUB_REPOSITORY" "${{ github.event.pull_request.number }}" \
+            --body "@enac-ai-reviewer review"
+```
+
+The token matters: with the default `GITHUB_TOKEN` the comment author is `github-actions[bot]`, which is not an org member and is rejected by the webhook's org-membership check. Use a PAT belonging to an org member instead. With a fine-grained PAT:
+
+- Repository access: select the target repos.
+- Pull requests: Read and write (PR conversations and reviews).
+- Issues: Read and write (posting the trigger comment).
+- On org repos the PAT must be approved by the org (org settings → Personal access tokens) before it works.
+
+A classic PAT with the `repo` scope also works. Alternative trigger: `gh pr edit --add-label ai-review` (the bot reacts to the `ai-review`/`ai-triage` labels). Add `reopened` or `synchronize` to `pull_request.types` to also trigger on re-opens and new pushes; each run dedupes per comment/head-sha. Fork pull requests do not receive repo secrets, so the workflow is a no-op there — the bot only serves allowed organizations anyway.
+
 ## Deployment
 
 CI/CD follows the same pattern as [co2-calculator](https://github.com/EPFL-ENAC/co2-calculator): `.github/workflows/publish_chart.yaml` packages and pushes `helm/` to `oci://ghcr.io/epfl-enac/enac-ai-reviewer/helm`, then `.github/workflows/deploy.yml` calls [epfl-enac-build-push-deploy-action](https://github.com/EPFL-ENAC/epfl-enac-build-push-deploy-action)'s reusable `deploy.yml` to build/push the image and dispatch an `update-manifest` event to the GitOps repo (`EPFL-ENAC/enack8s-app-config`), which ArgoCD then picks up.
