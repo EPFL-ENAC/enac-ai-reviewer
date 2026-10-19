@@ -61,6 +61,10 @@ const workerSchema = z.object({
   LLM_BASE_URL: z.string().url(),
   LLM_API_KEY: z.string().min(1),
   LLM_MODEL: z.string().min(1),
+  // Optional guardrails for LLM calls (sane defaults applied in llm/client.ts).
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().optional(),
+  LLM_MAX_RETRIES: z.coerce.number().int().nonnegative().optional(),
 });
 
 export type WebConfig = z.infer<typeof webSchema> & {

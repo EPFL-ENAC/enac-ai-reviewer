@@ -1,6 +1,5 @@
-import { generateObject } from 'ai';
 import { z } from 'zod';
-import type { LlmModel } from './client.js';
+import { generateStructured, type LlmCallOptions, type LlmModel } from './client.js';
 import type { LlmEventListener } from './events.js';
 
 export const ExplainResultSchema = z.object({
@@ -41,14 +40,11 @@ export async function generateExplain(
   model: LlmModel,
   input: ExplainInput,
   onEvent?: LlmEventListener,
+  options?: LlmCallOptions,
 ): Promise<ExplainOutcome> {
   const prompt = buildPrompt(input);
   await onEvent?.({ type: 'llm_prompt', prompt });
-  const { object, usage } = await generateObject({
-    model,
-    schema: ExplainResultSchema,
-    prompt,
-  });
+  const { object, usage } = await generateStructured(model, ExplainResultSchema, prompt, options);
   await onEvent?.({
     type: 'llm_response',
     result: object,

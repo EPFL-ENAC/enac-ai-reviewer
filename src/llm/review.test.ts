@@ -26,7 +26,23 @@ function fakeModel(responses: unknown[]): LanguageModelV1 {
       };
     },
     doStream: async () => {
-      throw new Error('doStream not implemented');
+      const response = responses[Math.min(call, responses.length - 1)];
+      call += 1;
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'response-metadata', modelId: 'fake-model' });
+            controller.enqueue({ type: 'text-delta', textDelta: JSON.stringify(response) });
+            controller.enqueue({
+              type: 'finish',
+              finishReason: 'stop',
+              usage: { promptTokens: 10, completionTokens: 5 },
+            });
+            controller.close();
+          },
+        }),
+        rawCall: { rawPrompt: null, rawSettings: {} },
+      };
     },
   };
 }

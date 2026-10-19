@@ -18,7 +18,7 @@ import {
   postIssueComment,
   updateIssueComment,
 } from '../github/publish.js';
-import { createLlmModel, type LlmModel } from '../llm/client.js';
+import { createLlmModel, type LlmCallOptions, type LlmModel } from '../llm/client.js';
 import type { LlmEventListener } from '../llm/events.js';
 import { formatExplainComment, generateExplain } from '../llm/explain.js';
 import { generateReview, type FileFetcher, type ReviewAgentEventListener } from '../llm/review.js';
@@ -35,6 +35,14 @@ export interface WorkerContext {
 
 const TRIAGE_COMMENT_MARKER = '### AI triage';
 const EXPLAIN_COMMENT_MARKER = '### AI summary';
+
+function llmCallOptions(config: WorkerConfig): LlmCallOptions {
+  return {
+    maxTokens: config.LLM_MAX_OUTPUT_TOKENS,
+    timeoutMs: config.LLM_TIMEOUT_MS,
+    maxRetries: config.LLM_MAX_RETRIES,
+  };
+}
 
 async function trace(sql: Sql, jobId: string, type: string, payload?: unknown): Promise<void> {
   await insertJobTrace(sql, { jobId, type, payload });
@@ -96,6 +104,7 @@ async function runIssueTriage(ctx: WorkerContext, job: ReviewJob, owner: string,
       comments: context.comments,
     },
     llmTraceMapper(ctx.sql, job.id, ctx.config.LLM_MODEL),
+    llmCallOptions(ctx.config),
   );
 
   await postOrUpdateMarkedComment(ctx, octokit, target, TRIAGE_COMMENT_MARKER, formatTriageComment(outcome.result));
@@ -136,6 +145,7 @@ async function runChangeRequestExplain(ctx: WorkerContext, job: ReviewJob, owner
       diff: context.diff,
     },
     llmTraceMapper(ctx.sql, job.id, ctx.config.LLM_MODEL),
+    llmCallOptions(ctx.config),
   );
 
   await postOrUpdateMarkedComment(ctx, octokit, target, EXPLAIN_COMMENT_MARKER, formatExplainComment(outcome.result));
@@ -206,6 +216,7 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
     },
     fetchFiles,
     onAgentEvent,
+    llmCallOptions(ctx.config),
   );
 
   const existingComments = await listReviewComments(octokit, { owner, repo, pullNumber });

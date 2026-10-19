@@ -1,6 +1,5 @@
-import { generateObject } from 'ai';
 import { z } from 'zod';
-import type { LlmModel } from './client.js';
+import { generateStructured, type LlmCallOptions, type LlmModel } from './client.js';
 import type { LlmEvent } from './events.js';
 import { sanitizeRequestedPaths, type FileFetchResult } from '../github/fetch-context.js';
 
@@ -102,6 +101,7 @@ actually appear in the diff below — never invent a line number. For each findi
 pointing at the new (added/context) version of the line, or LEFT if you're specifically pointing at a removed line.
 Only raise findings you're reasonably confident about; skip nitpicks and anything a linter would already catch
 (formatting, missing semicolons, import order). Do not comment on lock files or generated files.
+Keep each finding body under 120 words — precise and actionable, no restating the code.
 
 Review effort: ${effort}`,
   ];
@@ -143,15 +143,12 @@ export async function generateReview(
   input: ReviewInput,
   fetchFiles?: FileFetcher,
   onEvent?: ReviewAgentEventListener,
+  options?: LlmCallOptions,
 ): Promise<ReviewOutcome> {
   if (!fetchFiles) {
     const prompt = buildPrompt(input);
     await onEvent?.({ type: 'llm_prompt', prompt });
-    const { object, usage } = await generateObject({
-      model,
-      schema: ReviewResultSchema,
-      prompt,
-    });
+    const { object, usage } = await generateStructured(model, ReviewResultSchema, prompt, options);
     await onEvent?.({
       type: 'llm_response',
       result: object,
@@ -183,11 +180,7 @@ export async function generateReview(
       const forcedPrompt = `${prompt}\n\nYou have used all ${MAX_AGENT_TURNS} file request turns and no further files
 can be provided. Submit your final review now.`;
       await onEvent?.({ type: 'llm_prompt', prompt: forcedPrompt });
-      const { object, usage } = await generateObject({
-        model,
-        schema: ReviewResultSchema,
-        prompt: forcedPrompt,
-      });
+      const { object, usage } = await generateStructured(model, ReviewResultSchema, forcedPrompt, options);
       await onEvent?.({
         type: 'llm_response',
         result: object,
@@ -209,11 +202,7 @@ can be provided. Submit your final review now.`;
     }
 
     await onEvent?.({ type: 'llm_prompt', prompt });
-    const { object: turn, usage } = await generateObject({
-      model,
-      schema: ReviewTurnSchema,
-      prompt,
-    });
+    const { object: turn, usage } = await generateStructured(model, ReviewTurnSchema, prompt, options);
     await onEvent?.({
       type: 'llm_response',
       result: turn,
