@@ -54,7 +54,16 @@ export interface ReviewOutcome {
   fileChars: number;
 }
 
-const MAX_AGENT_TURNS = 3;
+/**
+ * Programmatic effect of the `--effort` command arg (kept in the prompt too).
+ * `low` disables the file-request agent entirely (single-shot diff review);
+ * `high` buys more agent turns for deeper file exploration.
+ */
+const AGENT_TURNS_BY_EFFORT: Record<NonNullable<ReviewInput['effort']>, number> = {
+  low: 0,
+  medium: 3,
+  high: 5,
+};
 const MAX_REQUESTED_FILES_PER_TURN = 5;
 
 export const FilesRequestTurnSchema = z.object({
@@ -119,7 +128,7 @@ Review effort: ${effort}`,
 additional files from this repository (at the PR head commit) to make your review more accurate — e.g. modules imported
 by changed files, interface definitions, callers, tests. Respond with
 {"action":"request_files","paths":["..."],"reason":"..."}. When ready, or when you have no more useful requests, respond
-with {"action":"submit_review","summary":"...","findings":[...]}. You have at most ${MAX_AGENT_TURNS} file request turns.
+with {"action":"submit_review","summary":"...","findings":[...]}. You have at most ${AGENT_TURNS_BY_EFFORT[effort]} file request turns.
 All findings must still reference lines that appear in the diff.`);
   } else {
     sections.push(`Respond with:
@@ -145,7 +154,8 @@ export async function generateReview(
   onEvent?: ReviewAgentEventListener,
   options?: LlmCallOptions,
 ): Promise<ReviewOutcome> {
-  if (!fetchFiles) {
+  const maxAgentTurns = AGENT_TURNS_BY_EFFORT[input.effort ?? 'medium'];
+  if (!fetchFiles || maxAgentTurns === 0) {
     const prompt = buildPrompt(input);
     await onEvent?.({ type: 'llm_prompt', prompt });
     const { object, usage } = await generateStructured(model, ReviewResultSchema, prompt, options);
@@ -176,8 +186,8 @@ export async function generateReview(
   const providedPaths = new Set<string>();
 
   for (;;) {
-    if (agentTurns >= MAX_AGENT_TURNS) {
-      const forcedPrompt = `${prompt}\n\nYou have used all ${MAX_AGENT_TURNS} file request turns and no further files
+    if (agentTurns >= maxAgentTurns) {
+      const forcedPrompt = `${prompt}\n\nYou have used all ${maxAgentTurns} file request turns and no further files
 can be provided. Submit your final review now.`;
       await onEvent?.({ type: 'llm_prompt', prompt: forcedPrompt });
       const { object, usage } = await generateStructured(model, ReviewResultSchema, forcedPrompt, options);

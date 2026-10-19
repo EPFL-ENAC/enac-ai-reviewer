@@ -87,10 +87,12 @@ Constants in `fetch-context.ts`, following the existing `MAX_*` style (`MAX_DIFF
 
 | Constant                        | Default | Meaning                                        |
 |---------------------------------|---------|------------------------------------------------|
-| `MAX_AGENT_TURNS`               | 3       | Max `request_files` turns per job              |
+| `AGENT_TURNS_BY_EFFORT`         | low: 0, medium: 3, high: 5 | Max `request_files` turns per job; `low` disables the agent (single-shot diff review) |
 | `MAX_REQUESTED_FILES_PER_TURN`  | 5       | Max paths per `request_files` turn             |
 | `MAX_AGENT_FILE_CHARS`          | 40 000  | Files above this are rejected (`too_large`)    |
 | `MAX_AGENT_TOTAL_FILE_CHARS`    | 120 000 | Cumulative file-character budget per job       |
+
+The turn budget is selected from the job's `--effort` argument (`AGENT_TURNS_BY_EFFORT` in `llm/review.ts`): `low` runs the single-shot review path even when a file fetcher is available, `medium` keeps the original 3 turns, and `high` extends to 5. The prompt still states the effort and the per-job turn budget.
 
 The union schema itself caps `paths` at `MAX_REQUESTED_FILES_PER_TURN`, so oversized requests fail schema validation rather than relying on runtime checks. A `paths` or `findings` value that arrives as a JSON-encoded string (a common model slip that otherwise fails the whole job) is coerced back to an array before validation; for `paths`, a bare non-empty string is treated as a single path.
 

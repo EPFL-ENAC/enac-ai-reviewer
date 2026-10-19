@@ -26,7 +26,7 @@ Example:
 
 | Argument  | Type                     | Effect |
 |-----------|--------------------------|--------|
-| `effort`  | `low` \| `medium` \| `high` | Injected into the review prompt to ask for a lighter or deeper review. Defaults to `medium` when omitted. |
+| `effort`  | `low` \| `medium` \| `high` | Controls review depth, in the prompt and programmatically: injected as `Review effort: ...`, and selects the file-request agent budget (`low`: agent disabled, single-shot diff review; `medium`: 3 request turns; `high`: 5 request turns). Defaults to `medium` when omitted. |
 | `model`   | string                   | Overrides `LLM_MODEL` for this job only. The worker creates a one-off `LlmModel` instance with the same base URL and API key. |
 | `context` | string                   | Free-form context appended to the prompt (e.g. `this is a backend API change`). |
 | `prompt`  | string                   | Extra instructions appended to the review prompt (e.g. `focus on security`). |

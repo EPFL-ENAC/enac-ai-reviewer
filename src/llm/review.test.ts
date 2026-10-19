@@ -75,6 +75,39 @@ describe('generateReview without fetchFiles (single-shot)', () => {
   });
 });
 
+describe('generateReview effort handling', () => {
+  it('low effort disables the agent even when a file fetcher is provided', async () => {
+    const outcome = await generateReview(
+      fakeModel([{ summary: 's', findings: [] }]),
+      { ...baseInput, effort: 'low' },
+      async () => {
+        throw new Error('low effort must not fetch files');
+      },
+    );
+
+    expect(outcome.result).toEqual({ summary: 's', findings: [] });
+    expect(outcome.agentTurns).toBe(0);
+    expect(outcome.requestedPaths).toEqual([]);
+    expect(outcome.fileChars).toBe(0);
+    expect(outcome.prompt).toContain('Review effort: low');
+    expect(outcome.prompt).not.toContain('File request protocol');
+  });
+
+  it('high effort allows more request turns than medium', async () => {
+    const request = { action: 'request_files' as const, paths: ['src/a.ts'] };
+    const outcome = await generateReview(
+      fakeModel([request, request, request, request, { action: 'submit_review', summary: 'ok', findings: [] }]),
+      { ...baseInput, effort: 'high' },
+      fetcherFromMap({}),
+    );
+
+    expect(outcome.agentTurns).toBe(4);
+    expect(outcome.requestedPaths).toEqual(['src/a.ts', 'src/a.ts', 'src/a.ts', 'src/a.ts']);
+    expect(outcome.result).toEqual({ summary: 'ok', findings: [] });
+    expect(outcome.prompt).toContain(`You have at most 5 file request turns.`);
+  });
+});
+
 describe('generateReview agent loop', () => {
   it('fetches requested files, appends them to the prompt and submits', async () => {
     const events: ReviewAgentEvent[] = [];
