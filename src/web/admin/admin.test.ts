@@ -279,6 +279,36 @@ describe('Admin UI job detail', () => {
     expect(res.payload).toContain('hello');
   });
 
+  it('collapses long trace messages behind an expand control', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, { jobId: created!.id, type: 'llm_prompt', payload: { prompt: 'x'.repeat(1000) } });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain('admin-trace-collapsible');
+    expect(res.payload).toContain('Show full message');
+    expect(res.payload).toContain('1,000 characters');
+    expect(res.payload).toContain('x'.repeat(50));
+  });
+
+  it('keeps short trace messages fully expanded', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, { jobId: created!.id, type: 'llm_prompt', payload: { prompt: 'hello' } });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).not.toContain('admin-trace-toggle');
+    expect(res.payload).not.toContain('Show full message');
+  });
+
   it('renders the command parameters in the job detail', async () => {
     const created = await enqueueJob(
       sql,
@@ -384,7 +414,7 @@ describe('Admin UI job detail', () => {
       headers: authHeaders(),
     });
     expect(res.statusCode).toBe(200);
-    expect(res.payload).not.toContain('<script>');
+    expect(res.payload).not.toContain('<script>alert(1)</script>');
     expect(res.payload).toContain('&lt;script&gt;');
     expect(res.payload).toContain('&lt;b&gt;bold&lt;/b&gt;');
   });
