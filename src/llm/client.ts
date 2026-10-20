@@ -54,20 +54,69 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   prompt: string,
   options?: LlmCallOptions,
 ): Promise<{ object: z.infer<SchemaT>; usage: { promptTokens: number; completionTokens: number } }> {
+  const settings = llmCallSettings(options);
   const result = streamObject({
     model,
     schema,
     prompt,
-    ...llmCallSettings(options),
+    ...settings,
     // Ask the (vLLM-backed) endpoint to emit token usage in the final stream
     // chunk; without this, streamed responses report NaN usage.
     providerOptions: { 'internal-llm': { stream_options: { include_usage: true } } },
   });
+
   // streamObject feeds its promises from a pull-based internal stream: it must
-  // be actively consumed or `object`/`usage` never resolve.
-  const stream = result.fullStream[Symbol.asyncIterator]();
-  while (!(await stream.next()).done) {
-    // drain; the validated final object is exposed via result.object
+  // be actively consumed or `object`/`usage` never resolve. Draining also lets
+  // us detect streams that end without a `finish` event (gateway cutting a
+  // long generation) — in that case result.object would hang forever.
+  const iterator = result.fullStream[Symbol.asyncIterator]();
+  const drain = (async (): Promise<boolean> => {
+    let sawFinish = false;
+    for (;;) {
+      const { done, value } = await iterator.next();
+      if (done) break;
+      if (value == null || typeof value !== 'object') continue;
+      const part = value as { type?: unknown; error?: unknown };
+      // Gateway/upstream failures arrive as error events inside the SSE
+      // stream (LiteLLM style). Surface the real cause instead of masking it
+      // as a missing completion event.
+      if (part.type === 'error') {
+        throw part.error instanceof Error
+          ? part.error
+          : new Error(`LLM stream error: ${JSON.stringify(part.error)?.slice(0, 500)}`);
+      }
+      if (part.type === 'finish') {
+        sawFinish = true;
+      }
+    }
+    return sawFinish;
+  })();
+
+  const aborted = new Promise<never>((_, reject) => {
+    const signal = settings.abortSignal;
+    if (signal.aborted) {
+      reject(new Error(`LLM call aborted before completion (${String(signal.reason)})`));
+      return;
+    }
+    signal.addEventListener(
+      'abort',
+      () => reject(new Error(`LLM call exceeded its time budget (${String(signal.reason)})`)),
+      { once: true },
+    );
+  });
+  aborted.catch(() => {}); // stays unhandled if the drain wins the race
+
+  let sawFinish: boolean;
+  try {
+    sawFinish = await Promise.race([drain, aborted]);
+  } catch (err) {
+    drain.catch(() => {}); // the losing drain may reject later; don't crash the worker
+    await iterator.return?.();
+    throw err;
+  }
+
+  if (!sawFinish) {
+    throw new Error('LLM stream ended without a completion event (connection closed early)');
   }
   return { object: await result.object, usage: await result.usage };
 }

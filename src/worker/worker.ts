@@ -14,6 +14,7 @@ const POLL_INTERVAL_MS = 1500;
 const POLL_JITTER_MS = 500;
 const HEARTBEAT_INTERVAL_MS = 5000;
 const STALE_JOB_MAX_AGE_MINUTES = 10;
+const STALE_REAPER_INTERVAL_MS = 5 * 60 * 1000;
 const HEARTBEAT_FILE = process.env.WORKER_HEARTBEAT_FILE ?? '/tmp/worker-heartbeat';
 
 const config = loadWorkerConfig();
@@ -24,6 +25,7 @@ const logger = pino();
 
 let shuttingDown = false;
 let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
+let staleReaperInterval: ReturnType<typeof setInterval> | undefined;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,6 +150,9 @@ async function shutdown(reason: string): Promise<void> {
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
   }
+  if (staleReaperInterval) {
+    clearInterval(staleReaperInterval);
+  }
   await sql.end();
   process.exit(0);
 }
@@ -158,21 +163,28 @@ process.on('unhandledRejection', (err) => {
   logger.error({ err }, 'unhandled rejection in worker');
 });
 
+async function requeueStaleJobs(): Promise<void> {
+  try {
+    const requeuedCount = await requeueStaleRunningJobs(sql, STALE_JOB_MAX_AGE_MINUTES);
+    if (requeuedCount > 0) {
+      logger.warn({ requeuedCount }, 'requeued stale running jobs');
+    }
+  } catch (err) {
+    logger.error({ err }, 'failed to requeue stale running jobs; continuing poll loop');
+  }
+}
+
 async function start(): Promise<void> {
   // Keep the heartbeat file fresh even when a single job (e.g. an LLM call)
   // blocks the poll loop for longer than the liveness-probe threshold.
   heartbeatInterval = setInterval(() => void touchHeartbeat(), HEARTBEAT_INTERVAL_MS);
 
-  // If a previous worker died mid-job, those rows are still 'running'.
-  // Re-queue them so work is not lost after a pod restart.
-  try {
-    const requeuedCount = await requeueStaleRunningJobs(sql, STALE_JOB_MAX_AGE_MINUTES);
-    if (requeuedCount > 0) {
-      logger.info({ requeuedCount }, 'requeued stale running jobs after worker startup');
-    }
-  } catch (err) {
-    logger.error({ err }, 'failed to requeue stale running jobs; continuing poll loop');
-  }
+  // Safety net for rows left 'running' by a crashed or wedged worker: the
+  // startup requeue covers pod restarts, this interval also reclaims rows
+  // while the pod stays up. Runs on its own timer + pool connection so it
+  // works even while the poll loop is blocked inside a job.
+  void requeueStaleJobs();
+  staleReaperInterval = setInterval(() => void requeueStaleJobs(), STALE_REAPER_INTERVAL_MS);
 
   void loop();
 }
