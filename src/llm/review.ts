@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { generateStructured, type LlmCallOptions, type LlmModel } from './client.js';
 import type { LlmEvent } from './events.js';
-import { sanitizeRequestedPaths, type FileFetchResult } from '../github/fetch-context.js';
+import {
+  MAX_AGENT_FILE_CHARS,
+  MAX_AGENT_TOTAL_FILE_CHARS,
+  sanitizeRequestedPaths,
+  type FileFetchResult,
+} from '../github/fetch-context.js';
 
 export const ReviewFindingSchema = z.object({
   path: z.string(),
@@ -66,6 +71,27 @@ const AGENT_TURNS_BY_EFFORT: Record<NonNullable<ReviewInput['effort']>, number> 
 };
 const MAX_REQUESTED_FILES_PER_TURN = 5;
 
+function formatChars(chars: number): string {
+  return chars.toLocaleString('en-US');
+}
+
+function describeFileStatus(status: FileFetchResult['status']): string {
+  switch (status) {
+    case 'fetched':
+      return 'fetched';
+    case 'not_found':
+      return 'not found at the PR head commit';
+    case 'binary_skipped':
+      return 'binary file, skipped';
+    case 'too_large':
+      return `over the ${formatChars(MAX_AGENT_FILE_CHARS)}-character per-file limit — request a smaller file instead`;
+    case 'skipped_generated':
+      return 'generated or lock file, skipped';
+    case 'budget_exhausted':
+      return `the ${formatChars(MAX_AGENT_TOTAL_FILE_CHARS)}-character total file budget is exhausted — no further files can be provided`;
+  }
+}
+
 export const FilesRequestTurnSchema = z.object({
   action: z.literal('request_files'),
   paths: z.preprocess(coerceStringToArray, z.array(z.string()).min(1).max(MAX_REQUESTED_FILES_PER_TURN)),
@@ -126,7 +152,9 @@ Review effort: ${effort}`,
   if (agent) {
     sections.push(`File request protocol: before submitting your review, you may request up to ${MAX_REQUESTED_FILES_PER_TURN}
 additional files from this repository (at the PR head commit) to make your review more accurate — e.g. modules imported
-by changed files, interface definitions, callers, tests. Respond with
+by changed files, interface definitions, callers, tests. Limits: ${formatChars(MAX_AGENT_FILE_CHARS)} characters per file and
+${formatChars(MAX_AGENT_TOTAL_FILE_CHARS)} characters across all turns. Files over the per-file limit are rejected and cannot
+be provided — request smaller or more specific files instead of re-requesting a rejected one. Respond with
 {"action":"request_files","paths":["..."],"reason":"..."}. When ready, or when you have no more useful requests, respond
 with {"action":"submit_review","summary":"...","findings":[...]}. You have at most ${AGENT_TURNS_BY_EFFORT[effort]} file request turns.
 All findings must still reference lines that appear in the diff.`);
@@ -283,12 +311,12 @@ async function requestFilesSection(
       contents.push(`--- ${path} ---\n${result.content}`);
       files.push({ path, status: 'fetched', chars: result.content.length });
     } else {
-      unavailable.push(`${path} (${result.status})`);
+      unavailable.push(`${path} (${describeFileStatus(result.status)})`);
       files.push({ path, status: result.status });
     }
   }
   for (const path of invalid) {
-    unavailable.push(`${path} (invalid)`);
+    unavailable.push(`${path} (invalid path, rejected)`);
     files.push({ path, status: 'invalid' });
   }
   for (const path of duplicates) {

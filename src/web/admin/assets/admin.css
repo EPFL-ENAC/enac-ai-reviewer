@@ -127,6 +127,30 @@ body { background: var(--bg-subtle); }
   margin: 0;
 }
 
+.admin-trace-summary { cursor: pointer; list-style: none; display: block; }
+.admin-trace-summary::-webkit-details-marker { display: none; }
+.admin-trace-summary:focus-visible { outline: var(--focus-w) solid var(--primary-hover); outline-offset: 0.125rem; }
+.admin-trace-summary:hover .admin-trace-toggle { color: var(--link-hover); }
+.admin-trace-collapsible[open] .admin-trace-summary { margin-bottom: var(--space-2); }
+.admin-trace-collapsible[open] .admin-trace-toggle-show { display: none; }
+.admin-trace-collapsible:not([open]) .admin-trace-toggle-hide { display: none; }
+.admin-trace-preview {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0 0 var(--space-2);
+}
+.admin-trace-toggle {
+  display: inline-block;
+  font-size: var(--fs-sm);
+  font-weight: var(--w-bold);
+  color: var(--link);
+  text-decoration: underline;
+}
+
 .admin-empty { color: var(--fg-muted); font-style: italic; }
 
 .admin-files { display: flex; flex-direction: column; gap: var(--space-2); }

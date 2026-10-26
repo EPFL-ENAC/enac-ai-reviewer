@@ -85,8 +85,8 @@ export type FileFetchResult =
   | { status: 'skipped_generated' }
   | { status: 'budget_exhausted' };
 
-const MAX_AGENT_FILE_CHARS = 40000;
-const MAX_AGENT_TOTAL_FILE_CHARS = 120000;
+export const MAX_AGENT_FILE_CHARS = 40000;
+export const MAX_AGENT_TOTAL_FILE_CHARS = 120000;
 
 /** Filters the file paths the LLM asked for: drops empty, absolute, traversal-style, backslashed and duplicate paths. */
 export function sanitizeRequestedPaths(paths: string[]): string[] {

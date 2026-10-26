@@ -45,6 +45,24 @@ function githubPullUrl(repo: string, pullNumber: number): string {
   return `${githubRepoUrl(repo)}/pull/${pullNumber}`;
 }
 
+const TRACE_COLLAPSE_CHARS = 400;
+const TRACE_PREVIEW_CHARS = 300;
+
+function renderTracePre(text: string, traceKey: string): string {
+  if (text.length <= TRACE_COLLAPSE_CHARS) {
+    return `<pre>${escapeHtml(text)}</pre>`;
+  }
+  const preview = `${escapeHtml(text.slice(0, TRACE_PREVIEW_CHARS).trimEnd())}…`;
+  return `<details class="admin-trace-collapsible" data-trace-key="${escapeHtml(traceKey)}">
+      <summary class="admin-trace-summary">
+        <span class="admin-trace-preview">${preview}</span>
+        <span class="admin-trace-toggle admin-trace-toggle-show">Show full message (${text.length.toLocaleString('en-US')} characters)</span>
+        <span class="admin-trace-toggle admin-trace-toggle-hide">Hide full message</span>
+      </summary>
+      <pre>${escapeHtml(text)}</pre>
+    </details>`;
+}
+
 function layout(title: string, body: string, refreshUrl?: string, user?: AdminUser): string {
   const refresh = refreshUrl
     ? `<meta http-equiv="refresh" content="10;url=${escapeHtml(refreshUrl)}">`
@@ -229,7 +247,7 @@ export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; base
 
   const tracesHtml = [...opts.traces].reverse()
     .map((trace) => {
-      const payloadHtml = formatTracePayload(trace.type, trace.payload);
+      const payloadHtml = formatTracePayload(trace.type, trace.payload, `${trace.type}:${trace.createdAt.toISOString()}`);
       return `<div class="admin-trace">
         <div class="admin-trace-header">
           <span class="admin-trace-time">${formatDate(trace.createdAt)}</span>
@@ -271,6 +289,32 @@ export function renderJobDetail(opts: { job: ReviewJob; traces: JobTrace[]; base
     </table>
     <h2 class="h5">Trace</h2>
     ${tracesHtml || '<p class="admin-empty">No trace events yet.</p>'}
+    <script>
+      (function () {
+        var storageKey = 'admin-trace-open:${job.id}';
+        try {
+          var openKeys = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+          document.querySelectorAll('details.admin-trace-collapsible').forEach(function (el) {
+            var key = el.getAttribute('data-trace-key');
+            if (key && openKeys.indexOf(key) !== -1) {
+              el.open = true;
+            }
+            el.addEventListener('toggle', function () {
+              try {
+                var current = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+                var at = current.indexOf(key);
+                if (el.open && at === -1) {
+                  current.push(key);
+                } else if (!el.open && at !== -1) {
+                  current.splice(at, 1);
+                }
+                sessionStorage.setItem(storageKey, JSON.stringify(current));
+              } catch (err) {}
+            });
+          });
+        } catch (err) {}
+      })();
+    </script>
   `;
 
   return layout(`Admin — Job ${job.id.slice(0, 8)}`, body, refreshUrl, opts.user);
@@ -284,13 +328,13 @@ function formatCommandArgs(args: CommandArgs | null | undefined): string {
     .join('');
 }
 
-function formatTracePayload(type: string, payload: unknown): string {
+function formatTracePayload(type: string, payload: unknown, traceKey: string): string {
   if (payload == null || (typeof payload === 'object' && Object.keys(payload).length === 0)) {
     return '';
   }
   if (type === 'llm_prompt' && typeof payload === 'object' && payload !== null && 'prompt' in payload) {
     const prompt = (payload as { prompt: unknown }).prompt;
-    return `<pre>${escapeHtml(String(prompt))}</pre>`;
+    return renderTracePre(String(prompt), traceKey);
   }
   if (type === 'files_requested' && typeof payload === 'object' && payload !== null) {
     const { turn, paths, reason } = payload as { turn?: unknown; paths?: unknown; reason?: unknown };
@@ -308,7 +352,7 @@ function formatTracePayload(type: string, payload: unknown): string {
       totalChars?: unknown;
     };
     if (!Array.isArray(files) || files.length === 0) {
-      return `<pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
+      return renderTracePre(JSON.stringify(payload, null, 2), traceKey);
     }
     const rows = files
       .map((file) => {
@@ -324,5 +368,5 @@ function formatTracePayload(type: string, payload: unknown): string {
         : '';
     return `<div class="admin-files">${rows}${totals}</div>`;
   }
-  return `<pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
+  return renderTracePre(JSON.stringify(payload, null, 2), traceKey);
 }

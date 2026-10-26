@@ -262,6 +262,7 @@ export async function cancelJob(sql: Sql, id: string): Promise<ReviewJob | null>
     where id = ${id}
     returning *
   `;
+  
   return rows[0] ? toReviewJob(rows[0]) : null;
 }
 
