@@ -34,18 +34,18 @@ function fakeStreamModel(options: { parts: LanguageModelV4StreamPart[]; close: b
 }
 
 const schema = z.object({ summary: z.string() });
-const jsonPart: LanguageModelV4StreamPart = {
-  type: 'text-delta',
-  id: '1',
-  delta: JSON.stringify({ summary: 's' }),
-};
+const jsonParts: LanguageModelV4StreamPart[] = [
+  { type: 'text-start', id: '1' },
+  { type: 'text-delta', id: '1', delta: JSON.stringify({ summary: 's' }) },
+  { type: 'text-end', id: '1' },
+];
 const finishPart: LanguageModelV4StreamPart = { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: fakeUsage };
 
 describe('generateStructured stream safety', () => {
   it('resolves the validated object and usage on a well-formed stream', async () => {
     const parts: LanguageModelV4StreamPart[] = [
       { type: 'response-metadata', modelId: 'fake-model' },
-      jsonPart,
+      ...jsonParts,
       finishPart,
     ];
     const model = fakeStreamModel({ parts, close: true });
@@ -56,16 +56,31 @@ describe('generateStructured stream safety', () => {
     expect(usage).toEqual({ promptTokens: 10, completionTokens: 5 });
   });
 
-  it('rejects instead of hanging when the stream ends without a finish event', async () => {
-    const model = fakeStreamModel({ parts: [jsonPart], close: true });
+  it('accepts complete JSON when the stream is cut before the finish event', async () => {
+    const model = fakeStreamModel({ parts: [...jsonParts], close: true });
 
-    await expect(generateStructured(model, schema, 'p', { timeoutMs: 5000 })).rejects.toThrow(
-      /ended without a completion event/,
-    );
+    const { object } = await generateStructured(model, schema, 'p', { timeoutMs: 5000 });
+
+    expect(object).toEqual({ summary: 's' });
+  });
+
+  it('rejects with diagnostics when a cut stream leaves incomplete JSON', async () => {
+    const parts: LanguageModelV4StreamPart[] = [
+      { type: 'text-start', id: '1' },
+      { type: 'text-delta', id: '1', delta: '{"summary": "cut off mid-str' },
+      { type: 'text-end', id: '1' },
+    ];
+    const model = fakeStreamModel({ parts, close: true });
+
+    const error = await generateStructured(model, schema, 'p', { timeoutMs: 5000 }).catch((err: unknown) => err) as Error;
+
+    expect(error.message).toContain('failed schema validation');
+    expect(error.message).toContain('finishReason: other');
+    expect(error.message).toContain('raw output:');
   });
 
   it('rejects on the time budget when the stream never ends', async () => {
-    const model = fakeStreamModel({ parts: [jsonPart], close: false });
+    const model = fakeStreamModel({ parts: [...jsonParts], close: false });
 
     await expect(generateStructured(model, schema, 'p', { timeoutMs: 50 })).rejects.toThrow(
       /exceeded its time budget/,
@@ -74,7 +89,7 @@ describe('generateStructured stream safety', () => {
 
   it('surfaces in-stream gateway errors with their real cause', async () => {
     const model = fakeStreamModel({
-      parts: [jsonPart, { type: 'error', error: { message: 'upstream exploded', code: 502 } }],
+      parts: [...jsonParts, { type: 'error', error: { message: 'upstream exploded', code: 502 } }],
       close: true,
     });
 
@@ -85,7 +100,9 @@ describe('generateStructured stream safety', () => {
 
   it('explains a schema mismatch: finishReason, zod issues and raw output', async () => {
     const parts: LanguageModelV4StreamPart[] = [
+      { type: 'text-start', id: '1' },
       { type: 'text-delta', id: '1', delta: JSON.stringify({ summary: 42 }) },
+      { type: 'text-end', id: '1' },
       finishPart,
     ];
     const model = fakeStreamModel({ parts, close: true });
@@ -97,9 +114,11 @@ describe('generateStructured stream safety', () => {
     expect(error.message).toContain('raw output: {"summary":42}');
   });
 
-  it('flags a schema failure caused by hitting the maxTokens cap', async () => {
+  it('flags a schema failure caused by hitting the maxOutputTokens cap', async () => {
     const parts: LanguageModelV4StreamPart[] = [
+      { type: 'text-start', id: '1' },
       { type: 'text-delta', id: '1', delta: '{"summary": "this json gets cut off mid-str' },
+      { type: 'text-end', id: '1' },
       { type: 'finish', finishReason: { unified: 'length', raw: 'length' }, usage: fakeUsage },
     ];
     const model = fakeStreamModel({ parts, close: true });
@@ -107,7 +126,7 @@ describe('generateStructured stream safety', () => {
     const error = await generateStructured(model, schema, 'p', { timeoutMs: 5000 }).catch((err: unknown) => err) as Error;
 
     expect(error.message).toContain('finishReason: length');
-    expect(error.message).toContain('truncated at the maxTokens cap');
+    expect(error.message).toContain('truncated at the maxOutputTokens cap');
     expect(error.message).toContain('raw output:');
   });
 });

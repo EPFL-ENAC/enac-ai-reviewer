@@ -28,7 +28,9 @@ function fakeModel(responses: unknown[]): LanguageModelV4 {
       call += 1;
       const parts: LanguageModelV4StreamPart[] = [
         { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: '1' },
         { type: 'text-delta', id: '1', delta: JSON.stringify(response) },
+        { type: 'text-end', id: '1' },
         { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: fakeUsage },
       ];
       return {

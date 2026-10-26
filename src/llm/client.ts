@@ -1,4 +1,4 @@
-import { streamObject } from 'ai';
+import { Output, streamText } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { z } from 'zod';
 
@@ -6,7 +6,13 @@ type Provider = ReturnType<typeof createOpenAICompatible>;
 export type LlmModel = ReturnType<Provider>;
 
 export function createLlmModel(baseURL: string, apiKey: string, model: string): LlmModel {
-  const provider = createOpenAICompatible({ name: 'internal-llm', baseURL, apiKey });
+  const provider = createOpenAICompatible({
+    name: 'internal-llm',
+    baseURL,
+    apiKey,
+    includeUsage: true,
+    supportsStructuredOutputs: true,
+  });
   return provider(model);
 }
 
@@ -31,12 +37,12 @@ const DEFAULT_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_RETRIES = 1;
 
 export function llmCallSettings(options?: LlmCallOptions): {
-  maxTokens: number;
+  maxOutputTokens: number;
   abortSignal: AbortSignal;
   maxRetries: number;
 } {
   return {
-    maxTokens: options?.maxTokens ?? DEFAULT_MAX_TOKENS,
+    maxOutputTokens: options?.maxTokens ?? DEFAULT_MAX_TOKENS,
     abortSignal: AbortSignal.timeout(options?.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     maxRetries: options?.maxRetries ?? DEFAULT_MAX_RETRIES,
   };
@@ -55,23 +61,21 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   options?: LlmCallOptions,
 ): Promise<{ object: z.infer<SchemaT>; usage: { promptTokens: number; completionTokens: number } }> {
   const settings = llmCallSettings(options);
-  const result = streamObject({
+  const result = streamText({
     model,
-    schema,
     prompt,
+    output: Output.object({ schema }),
     ...settings,
-    // Ask the (vLLM-backed) endpoint to emit token usage in the final stream
-    // chunk; without this, streamed responses report NaN usage.
-    providerOptions: { 'internal-llm': { stream_options: { include_usage: true } } },
   });
 
-  // streamObject feeds its promises from a pull-based internal stream: it must
-  // be actively consumed or `object`/`usage` never resolve. Draining also lets
-  // us detect streams that end without a `finish` event (gateway cutting a
-  // long generation) — in that case result.object would hang forever.
-  const iterator = result.fullStream[Symbol.asyncIterator]();
+  // streamText feeds its promises from an internal stream: it must be actively
+  // consumed or `output`/`usage` never resolve. Draining the result stream
+  // also surfaces in-stream error parts with their real cause and captures
+  // the finish reason for diagnostics. streamText synthesizes a finish event
+  // (`other`) if the provider stream is cut, so a truncated generation ends
+  // up as a schema failure instead of a hang.
+  const iterator = result.stream[Symbol.asyncIterator]();
   const drain = (async (): Promise<string | undefined> => {
-    let sawFinish = false;
     let finishReason: string | undefined;
     for (;;) {
       const { done, value } = await iterator.next();
@@ -80,14 +84,13 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
       const part = value as { type?: unknown; error?: unknown; finishReason?: unknown };
       // Gateway/upstream failures arrive as error events inside the SSE
       // stream (LiteLLM style). Surface the real cause instead of masking it
-      // as a missing completion event.
+      // as a schema-validation failure.
       if (part.type === 'error') {
         throw part.error instanceof Error
           ? part.error
           : new Error(`LLM stream error: ${JSON.stringify(part.error)?.slice(0, 500)}`);
       }
       if (part.type === 'finish') {
-        sawFinish = true;
         const fr = (part as { finishReason?: unknown }).finishReason;
         if (typeof fr === 'string') {
           finishReason = fr;
@@ -96,7 +99,7 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
         }
       }
     }
-    return sawFinish ? finishReason : undefined;
+    return finishReason;
   })();
 
   const aborted = new Promise<never>((_, reject) => {
@@ -116,18 +119,14 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   let finishReason: string | undefined;
   try {
     finishReason = await Promise.race([drain, aborted]);
-    if (finishReason === undefined) {
-      throw new Error('LLM stream ended without a completion event (connection closed early)');
-    }
   } catch (err) {
     drain.catch(() => {}); // the losing drain may reject later; don't crash the worker
-    await iterator.return?.();
     throw err;
   }
 
   let object: z.infer<SchemaT>;
   try {
-    object = (await result.object) as z.infer<SchemaT>;
+    object = (await result.output) as z.infer<SchemaT>;
   } catch (err) {
     throw describeSchemaFailure(err, finishReason);
   }
@@ -184,7 +183,7 @@ function describeSchemaFailure(err: unknown, streamFinishReason: string | undefi
     parts.push(`cause: ${cause.name}: ${cause.message}`);
   }
   if (reason === 'length') {
-    parts.push('output was truncated at the maxTokens cap before the JSON completed');
+    parts.push('output was truncated at the maxOutputTokens cap before the JSON completed');
   }
 
   const raw = typeof source.text === 'string' ? source.text : '';
