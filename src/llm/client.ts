@@ -32,7 +32,7 @@ export interface LlmCallOptions {
   maxRetries?: number;
 }
 
-const DEFAULT_MAX_TOKENS = 16384;
+const DEFAULT_MAX_TOKENS = 65536;
 const DEFAULT_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_RETRIES = 1;
 

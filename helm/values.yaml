@@ -144,7 +144,7 @@ worker:
     # legitimately run for minutes; calls are streamed and these bounds keep
     # worst cases finite.
     # LLM_TIMEOUT_MS: "600000"
-    # LLM_MAX_OUTPUT_TOKENS: "16384"
+    # LLM_MAX_OUTPUT_TOKENS: "65536"
     # LLM_MAX_RETRIES: "1"
 
   heartbeatFile: /tmp/worker-heartbeat
