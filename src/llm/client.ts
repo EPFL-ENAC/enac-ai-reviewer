@@ -70,13 +70,14 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   // us detect streams that end without a `finish` event (gateway cutting a
   // long generation) — in that case result.object would hang forever.
   const iterator = result.fullStream[Symbol.asyncIterator]();
-  const drain = (async (): Promise<boolean> => {
+  const drain = (async (): Promise<string | undefined> => {
     let sawFinish = false;
+    let finishReason: string | undefined;
     for (;;) {
       const { done, value } = await iterator.next();
       if (done) break;
       if (value == null || typeof value !== 'object') continue;
-      const part = value as { type?: unknown; error?: unknown };
+      const part = value as { type?: unknown; error?: unknown; finishReason?: unknown };
       // Gateway/upstream failures arrive as error events inside the SSE
       // stream (LiteLLM style). Surface the real cause instead of masking it
       // as a missing completion event.
@@ -87,9 +88,15 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
       }
       if (part.type === 'finish') {
         sawFinish = true;
+        const fr = (part as { finishReason?: unknown }).finishReason;
+        if (typeof fr === 'string') {
+          finishReason = fr;
+        } else if (fr != null && typeof fr === 'object' && typeof (fr as { unified?: unknown }).unified === 'string') {
+          finishReason = (fr as { unified: string }).unified;
+        }
       }
     }
-    return sawFinish;
+    return sawFinish ? finishReason : undefined;
   })();
 
   const aborted = new Promise<never>((_, reject) => {
@@ -106,17 +113,86 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   });
   aborted.catch(() => {}); // stays unhandled if the drain wins the race
 
-  let sawFinish: boolean;
+  let finishReason: string | undefined;
   try {
-    sawFinish = await Promise.race([drain, aborted]);
+    finishReason = await Promise.race([drain, aborted]);
+    if (finishReason === undefined) {
+      throw new Error('LLM stream ended without a completion event (connection closed early)');
+    }
   } catch (err) {
     drain.catch(() => {}); // the losing drain may reject later; don't crash the worker
     await iterator.return?.();
     throw err;
   }
 
-  if (!sawFinish) {
-    throw new Error('LLM stream ended without a completion event (connection closed early)');
+  let object: z.infer<SchemaT>;
+  try {
+    object = (await result.object) as z.infer<SchemaT>;
+  } catch (err) {
+    throw describeSchemaFailure(err, finishReason);
   }
-  return { object: await result.object, usage: await result.usage };
+  const usage = await result.usage;
+  return {
+    object,
+    usage: {
+      promptTokens: usage.inputTokens ?? 0,
+      completionTokens: usage.outputTokens ?? 0,
+    },
+  };
+}
+
+/**
+ * Turns the AI SDK's opaque "No object generated" error into a message that
+ * says WHY the output failed validation: the finish reason (a `length` finish
+ * means the model ran out of tokens mid-JSON), the zod issues, and an excerpt
+ * of the raw output. This is what ends up in the job's error_message.
+ */
+function describeSchemaFailure(err: unknown, streamFinishReason: string | undefined): Error {
+  const source = err as {
+    name?: string;
+    message?: string;
+    text?: unknown;
+    finishReason?: unknown;
+    cause?: unknown;
+  };
+  if (source?.name !== 'AI_NoObjectGeneratedError') {
+    return err instanceof Error ? err : new Error(String(err));
+  }
+
+  const reason =
+    typeof source.finishReason === 'string' && source.finishReason !== 'unknown'
+      ? source.finishReason
+      : streamFinishReason;
+  const parts = [`LLM output failed schema validation (finishReason: ${reason ?? 'unknown'})`];
+
+  const cause = source.cause as
+    | { name?: string; message?: string; issues?: unknown; cause?: { issues?: unknown } }
+    | undefined;
+  const issues = (cause?.issues ?? cause?.cause?.issues) as
+    | Array<{ path?: unknown; message?: unknown }>
+    | undefined;
+  if (Array.isArray(issues) && issues.length > 0) {
+    const summary = issues
+      .slice(0, 3)
+      .map((issue) => {
+        const { path, message } = issue as { path?: unknown; message?: unknown };
+        return Array.isArray(path) && path.length > 0 ? `${path.join('.')}: ${String(message)}` : String(message);
+      })
+      .join('; ');
+    parts.push(`schema issues: ${summary}`);
+  } else if (cause) {
+    parts.push(`cause: ${cause.name}: ${cause.message}`);
+  }
+  if (reason === 'length') {
+    parts.push('output was truncated at the maxTokens cap before the JSON completed');
+  }
+
+  const raw = typeof source.text === 'string' ? source.text : '';
+  if (raw) {
+    const head = raw.slice(0, 400);
+    const tail = raw.length > 600 ? ` … ${raw.slice(-200)}` : raw.slice(400);
+    parts.push(`raw output: ${head}${tail}`);
+  }
+
+  return new Error(parts.join(' | ').replace(/\s+/g, ' ').slice(0, 1200));
 }

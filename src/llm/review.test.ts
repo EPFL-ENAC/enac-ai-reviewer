@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { LanguageModelV1 } from 'ai';
+import type { LanguageModelV4, LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 import {
   generateReview,
   ReviewResultSchema,
@@ -8,40 +8,36 @@ import {
   type ReviewAgentEvent,
 } from './review.js';
 
-function fakeModel(responses: unknown[]): LanguageModelV1 {
+const fakeUsage: LanguageModelV4Usage = {
+  inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 5, text: 5, reasoning: 0 },
+};
+
+function fakeModel(responses: unknown[]): LanguageModelV4 {
   let call = 0;
   return {
-    specificationVersion: 'v1',
+    specificationVersion: 'v4',
     provider: 'fake',
     modelId: 'fake-model',
-    defaultObjectGenerationMode: 'json',
+    supportedUrls: {},
     doGenerate: async () => {
-      const response = responses[Math.min(call, responses.length - 1)];
-      call += 1;
-      return {
-        finishReason: 'stop',
-        usage: { promptTokens: 10, completionTokens: 5 },
-        text: JSON.stringify(response),
-        rawCall: { rawPrompt: null, rawSettings: {} },
-      };
+      throw new Error('doGenerate not used by generateReview');
     },
     doStream: async () => {
       const response = responses[Math.min(call, responses.length - 1)];
       call += 1;
+      const parts: LanguageModelV4StreamPart[] = [
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-delta', id: '1', delta: JSON.stringify(response) },
+        { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: fakeUsage },
+      ];
       return {
-        stream: new ReadableStream({
+        stream: new ReadableStream<LanguageModelV4StreamPart>({
           start(controller) {
-            controller.enqueue({ type: 'response-metadata', modelId: 'fake-model' });
-            controller.enqueue({ type: 'text-delta', textDelta: JSON.stringify(response) });
-            controller.enqueue({
-              type: 'finish',
-              finishReason: 'stop',
-              usage: { promptTokens: 10, completionTokens: 5 },
-            });
+            for (const part of parts) controller.enqueue(part);
             controller.close();
           },
         }),
-        rawCall: { rawPrompt: null, rawSettings: {} },
       };
     },
   };
@@ -235,7 +231,42 @@ describe('generateReview agent loop', () => {
       fetcherFromMap({}),
     );
 
-    expect(outcome.prompt).toContain('These files could not be fetched: missing.ts (not_found)');
+    expect(outcome.prompt).toContain('These files could not be fetched: missing.ts (not found at the PR head commit)');
+  });
+
+  it('explains why a file could not be fetched instead of the raw status code', async () => {
+    const outcome = await generateReview(
+      fakeModel([
+        { action: 'request_files', paths: ['big.ts', 'lock.json'] },
+        { action: 'submit_review', summary: 'ok', findings: [] },
+      ]),
+      baseInput,
+      async () =>
+        new Map([
+          ['big.ts', { status: 'too_large' }],
+          ['lock.json', { status: 'skipped_generated' }],
+        ]),
+    );
+
+    expect(outcome.prompt).toContain('big.ts (over the 40,000-character per-file limit');
+    expect(outcome.prompt).toContain('request a smaller file instead');
+    expect(outcome.prompt).toContain('lock.json (generated or lock file, skipped)');
+  });
+
+  it('states the file request limits in the prompt', async () => {
+    const outcome = await generateReview(
+      fakeModel([
+        { action: 'request_files', paths: ['a.ts'] },
+        { action: 'submit_review', summary: 'ok', findings: [] },
+      ]),
+      baseInput,
+      fetcherFromMap({ 'a.ts': 'a' }),
+    );
+
+    expect(outcome.prompt).toContain('you may request up to 5');
+    expect(outcome.prompt).toContain('40,000 characters per file and');
+    expect(outcome.prompt).toContain('120,000 characters across all turns');
+    expect(outcome.prompt).toContain('instead of re-requesting a rejected one');
   });
 
   it('drops invalid paths and reports them', async () => {
