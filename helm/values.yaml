@@ -139,6 +139,13 @@ worker:
   env:
     GITHUB_BOT_LOGIN: "enac-ai-reviewer"
     LLM_BASE_URL: "https://inference.rcp.epfl.ch/v1"
+    # Optional LLM call guardrails (defaults applied in src/llm/client.ts).
+    # The hosted models think by default and cannot disable it, so calls can
+    # legitimately run for minutes; calls are streamed and these bounds keep
+    # worst cases finite.
+    # LLM_TIMEOUT_MS: "600000"
+    # LLM_MAX_OUTPUT_TOKENS: "16384"
+    # LLM_MAX_RETRIES: "1"
 
   heartbeatFile: /tmp/worker-heartbeat
 
