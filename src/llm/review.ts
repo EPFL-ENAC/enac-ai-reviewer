@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { generateStructured, type LlmCallOptions, type LlmModel } from './client.js';
 import type { LlmEvent } from './events.js';
+import { excerptReasoning } from './events.js';
 import {
   MAX_AGENT_FILE_CHARS,
   MAX_AGENT_TOTAL_FILE_CHARS,
@@ -186,12 +187,13 @@ export async function generateReview(
   if (!fetchFiles || maxAgentTurns === 0) {
     const prompt = buildPrompt(input);
     await onEvent?.({ type: 'llm_prompt', prompt });
-    const { object, usage } = await generateStructured(model, ReviewResultSchema, prompt, options);
+    const { object, usage, reasoning } = await generateStructured(model, ReviewResultSchema, prompt, options);
     await onEvent?.({
       type: 'llm_response',
       result: object,
       inputTokens: usage.promptTokens,
       outputTokens: usage.completionTokens,
+      ...excerptReasoning(reasoning),
     });
 
     return {
@@ -218,12 +220,13 @@ export async function generateReview(
       const forcedPrompt = `${prompt}\n\nYou have used all ${maxAgentTurns} file request turns and no further files
 can be provided. Submit your final review now.`;
       await onEvent?.({ type: 'llm_prompt', prompt: forcedPrompt });
-      const { object, usage } = await generateStructured(model, ReviewResultSchema, forcedPrompt, options);
+      const { object, usage, reasoning } = await generateStructured(model, ReviewResultSchema, forcedPrompt, options);
       await onEvent?.({
         type: 'llm_response',
         result: object,
         inputTokens: usage.promptTokens,
         outputTokens: usage.completionTokens,
+        ...excerptReasoning(reasoning),
       });
       inputTokens += usage.promptTokens;
       outputTokens += usage.completionTokens;
@@ -240,12 +243,13 @@ can be provided. Submit your final review now.`;
     }
 
     await onEvent?.({ type: 'llm_prompt', prompt });
-    const { object: turn, usage } = await generateStructured(model, ReviewTurnSchema, prompt, options);
+    const { object: turn, usage, reasoning } = await generateStructured(model, ReviewTurnSchema, prompt, options);
     await onEvent?.({
       type: 'llm_response',
       result: turn,
       inputTokens: usage.promptTokens,
       outputTokens: usage.completionTokens,
+      ...excerptReasoning(reasoning),
     });
     inputTokens += usage.promptTokens;
     outputTokens += usage.completionTokens;

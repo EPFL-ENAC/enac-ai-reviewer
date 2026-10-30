@@ -59,7 +59,7 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   schema: SchemaT,
   prompt: string,
   options?: LlmCallOptions,
-): Promise<{ object: z.infer<SchemaT>; usage: { promptTokens: number; completionTokens: number } }> {
+): Promise<{ object: z.infer<SchemaT>; usage: { promptTokens: number; completionTokens: number }; reasoning: string }> {
   const settings = llmCallSettings(options);
   const result = streamText({
     model,
@@ -75,13 +75,14 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   // (`other`) if the provider stream is cut, so a truncated generation ends
   // up as a schema failure instead of a hang.
   const iterator = result.stream[Symbol.asyncIterator]();
+  const reasoningChunks: string[] = [];
   const drain = (async (): Promise<string | undefined> => {
     let finishReason: string | undefined;
     for (;;) {
       const { done, value } = await iterator.next();
       if (done) break;
       if (value == null || typeof value !== 'object') continue;
-      const part = value as { type?: unknown; error?: unknown; finishReason?: unknown };
+      const part = value as { type?: unknown; error?: unknown; finishReason?: unknown; text?: unknown };
       // Gateway/upstream failures arrive as error events inside the SSE
       // stream (LiteLLM style). Surface the real cause instead of masking it
       // as a schema-validation failure.
@@ -89,6 +90,13 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
         throw part.error instanceof Error
           ? part.error
           : new Error(`LLM stream error: ${JSON.stringify(part.error)?.slice(0, 500)}`);
+      }
+      // Thinking models stream their reasoning before the answer; keep it so
+      // traces and failure diagnostics can show what the model was doing
+      // (e.g. burning the whole token budget without emitting any output).
+      // Note: streamText renames the model-level `delta` to `text` here.
+      if (part.type === 'reasoning-delta' && typeof part.text === 'string') {
+        reasoningChunks.push(part.text);
       }
       if (part.type === 'finish') {
         const fr = (part as { finishReason?: unknown }).finishReason;
@@ -128,7 +136,7 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
   try {
     object = (await result.output) as z.infer<SchemaT>;
   } catch (err) {
-    throw describeSchemaFailure(err, finishReason);
+    throw describeSchemaFailure(err, finishReason, reasoningChunks.join(''));
   }
   const usage = await result.usage;
   return {
@@ -137,16 +145,19 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
       promptTokens: usage.inputTokens ?? 0,
       completionTokens: usage.outputTokens ?? 0,
     },
+    reasoning: reasoningChunks.join(''),
   };
 }
 
 /**
  * Turns the AI SDK's opaque "No object generated" error into a message that
  * says WHY the output failed validation: the finish reason (a `length` finish
- * means the model ran out of tokens mid-JSON), the zod issues, and an excerpt
- * of the raw output. This is what ends up in the job's error_message.
+ * means the model ran out of tokens mid-JSON), the zod issues, what the model
+ * was thinking (invaluable when it burned its whole budget without emitting
+ * output), and an excerpt of the raw output. This ends up in the job's
+ * error_message.
  */
-function describeSchemaFailure(err: unknown, streamFinishReason: string | undefined): Error {
+function describeSchemaFailure(err: unknown, streamFinishReason: string | undefined, reasoning = ''): Error {
   const source = err as {
     name?: string;
     message?: string;
@@ -184,6 +195,10 @@ function describeSchemaFailure(err: unknown, streamFinishReason: string | undefi
   }
   if (reason === 'length') {
     parts.push('output was truncated at the maxOutputTokens cap before the JSON completed');
+  }
+  if (reasoning) {
+    const excerpt = reasoning.length > 400 ? `${reasoning.slice(0, 400)}…` : reasoning;
+    parts.push(`thinking (${reasoning.length.toLocaleString('en-US')} chars): ${excerpt}`);
   }
 
   const raw = typeof source.text === 'string' ? source.text : '';
