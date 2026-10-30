@@ -338,4 +338,64 @@ describe('runJob change_request_review', () => {
       }),
     );
   });
+
+  it('traces the model thinking that accompanies an llm_response', async () => {
+    generateTriage.mockImplementation(async (...args: unknown[]) => {
+      const onEvent = args[2] as (event: unknown) => Promise<void>;
+      await onEvent({
+        type: 'llm_response',
+        result: { likelyType: 'bug', confidence: 'high', missingInformation: [], suggestedLabels: [] },
+        inputTokens: 100,
+        outputTokens: 50,
+        reasoningText: 'The issue reports a crash on save, so likely a bug.',
+        reasoningChars: 51,
+      });
+      return {
+        result: { likelyType: 'bug', confidence: 'high', missingInformation: [], suggestedLabels: [] },
+        inputTokens: 100,
+        outputTokens: 50,
+      };
+    });
+
+    await runJob(ctx, job());
+
+    expect(insertJobTrace).toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({
+        jobId: 'job-1',
+        type: 'llm_reasoning',
+        payload: {
+          model: 'test-model',
+          reasoningChars: 51,
+          thinking: 'The issue reports a crash on save, so likely a bug.',
+        },
+      }),
+    );
+  });
+
+  it('does not trace llm_reasoning when the model emitted no thinking', async () => {
+    generateTriage.mockImplementation(async (...args: unknown[]) => {
+      const onEvent = args[2] as (event: unknown) => Promise<void>;
+      await onEvent({
+        type: 'llm_response',
+        result: { likelyType: 'bug', confidence: 'high', missingInformation: [], suggestedLabels: [] },
+        inputTokens: 100,
+        outputTokens: 50,
+        reasoningText: '',
+        reasoningChars: 0,
+      });
+      return {
+        result: { likelyType: 'bug', confidence: 'high', missingInformation: [], suggestedLabels: [] },
+        inputTokens: 100,
+        outputTokens: 50,
+      };
+    });
+
+    await runJob(ctx, job());
+
+    expect(insertJobTrace).not.toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({ type: 'llm_reasoning' }),
+    );
+  });
 });

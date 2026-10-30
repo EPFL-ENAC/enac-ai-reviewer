@@ -13,7 +13,7 @@ const fakeUsage: LanguageModelV4Usage = {
   outputTokens: { total: 5, text: 5, reasoning: 0 },
 };
 
-function fakeModel(responses: unknown[]): LanguageModelV4 {
+function fakeModel(responses: unknown[], options?: { reasoning?: string }): LanguageModelV4 {
   let call = 0;
   return {
     specificationVersion: 'v4',
@@ -26,13 +26,20 @@ function fakeModel(responses: unknown[]): LanguageModelV4 {
     doStream: async () => {
       const response = responses[Math.min(call, responses.length - 1)];
       call += 1;
-      const parts: LanguageModelV4StreamPart[] = [
-        { type: 'stream-start', warnings: [] },
+      const parts: LanguageModelV4StreamPart[] = [{ type: 'stream-start', warnings: [] }];
+      if (options?.reasoning) {
+        parts.push(
+          { type: 'reasoning-start', id: 'r' },
+          { type: 'reasoning-delta', id: 'r', delta: options.reasoning },
+          { type: 'reasoning-end', id: 'r' },
+        );
+      }
+      parts.push(
         { type: 'text-start', id: '1' },
         { type: 'text-delta', id: '1', delta: JSON.stringify(response) },
         { type: 'text-end', id: '1' },
         { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: fakeUsage },
-      ];
+      );
       return {
         stream: new ReadableStream<LanguageModelV4StreamPart>({
           start(controller) {
@@ -140,6 +147,8 @@ describe('generateReview agent loop', () => {
         result: { action: 'request_files', paths: ['src/domain/types.ts'], reason: 'check the interface' },
         inputTokens: 10,
         outputTokens: 5,
+        reasoningText: '',
+        reasoningChars: 0,
       },
       { type: 'files_requested', turn: 1, paths: ['src/domain/types.ts'], reason: 'check the interface' },
       {
@@ -155,8 +164,32 @@ describe('generateReview agent loop', () => {
         result: { action: 'submit_review', summary: 'ok', findings: [] },
         inputTokens: 10,
         outputTokens: 5,
+        reasoningText: '',
+        reasoningChars: 0,
       },
     ]);
+  });
+
+  it('forwards the model thinking in llm_response events', async () => {
+    const events: unknown[] = [];
+
+    await generateReview(
+      fakeModel([{ summary: 'ok', findings: [] }], { reasoning: 'Weighing the severity of each finding.' }),
+      baseInput,
+      undefined,
+      (event) => {
+        events.push(event);
+      },
+    );
+
+    expect(events).toContainEqual({
+      type: 'llm_response',
+      result: { summary: 'ok', findings: [] },
+      inputTokens: 10,
+      outputTokens: 5,
+      reasoningText: 'Weighing the severity of each finding.',
+      reasoningChars: 'Weighing the severity of each finding.'.length,
+    });
   });
 
   it('rescues a request turn whose paths arrived as a JSON-encoded string', async () => {

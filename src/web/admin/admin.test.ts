@@ -400,6 +400,42 @@ describe('Admin UI job detail', () => {
     expect(res.payload).toContain('+1,234 chars');
   });
 
+  it('renders model thinking traces with a char count and collapses long ones', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, {
+      jobId: created!.id,
+      type: 'llm_reasoning',
+      payload: { model: 'test-model', reasoningChars: 61000, thinking: 'x'.repeat(1000) },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain('model thinking · 61,000 chars · truncated excerpt');
+    expect(res.payload).toContain('admin-trace-collapsible');
+  });
+
+  it('keeps short model thinking traces inline', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, {
+      jobId: created!.id,
+      type: 'llm_reasoning',
+      payload: { model: 'test-model', reasoningChars: 12, thinking: 'short thought' },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain('model thinking · 12 chars');
+    expect(res.payload).toContain('short thought');
+  });
+
   it('escapes HTML in file request trace payloads', async () => {
     const created = await enqueueJob(sql, baseJob());
     await insertJobTrace(sql, {

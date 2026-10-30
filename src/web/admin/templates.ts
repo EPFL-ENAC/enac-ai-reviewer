@@ -336,6 +336,16 @@ function formatTracePayload(type: string, payload: unknown, traceKey: string): s
     const prompt = (payload as { prompt: unknown }).prompt;
     return renderTracePre(String(prompt), traceKey);
   }
+  if (type === 'llm_reasoning' && typeof payload === 'object' && payload !== null && 'thinking' in payload) {
+    const { thinking, reasoningChars } = payload as { thinking?: unknown; reasoningChars?: unknown };
+    const label =
+      typeof reasoningChars === 'number'
+        ? `<div class="admin-file-reason">model thinking · ${reasoningChars.toLocaleString('en-US')} chars${
+            typeof thinking === 'string' && thinking.length < reasoningChars ? ' · truncated excerpt' : ''
+          }</div>`
+        : '';
+    return `${label}${renderTracePre(String(thinking ?? ''), traceKey)}`;
+  }
   if (type === 'files_requested' && typeof payload === 'object' && payload !== null) {
     const { turn, paths, reason } = payload as { turn?: unknown; paths?: unknown; reason?: unknown };
     const turnLabel = typeof turn === 'number' ? `<span class="admin-file-turn">turn ${turn}</span>` : '';

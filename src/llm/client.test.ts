@@ -79,6 +79,32 @@ describe('generateStructured stream safety', () => {
     expect(error.message).toContain('raw output:');
   });
 
+  it('collects the model thinking from reasoning deltas', async () => {
+    const parts: LanguageModelV4StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r' },
+      { type: 'reasoning-delta', id: 'r', delta: 'Let me think. ' },
+      { type: 'reasoning-delta', id: 'r', delta: 'The summary should be "s".' },
+      { type: 'reasoning-end', id: 'r' },
+      ...jsonParts,
+      finishPart,
+    ];
+    const model = fakeStreamModel({ parts, close: true });
+
+    const { object, reasoning } = await generateStructured(model, schema, 'p', { timeoutMs: 5000 });
+
+    expect(object).toEqual({ summary: 's' });
+    expect(reasoning).toBe('Let me think. The summary should be "s".');
+  });
+
+  it('returns empty thinking when the stream has no reasoning deltas', async () => {
+    const model = fakeStreamModel({ parts: [...jsonParts, finishPart], close: true });
+
+    const { reasoning } = await generateStructured(model, schema, 'p', { timeoutMs: 5000 });
+
+    expect(reasoning).toBe('');
+  });
+
   it('rejects on the time budget when the stream never ends', async () => {
     const model = fakeStreamModel({ parts: [...jsonParts], close: false });
 
@@ -115,7 +141,11 @@ describe('generateStructured stream safety', () => {
   });
 
   it('flags a schema failure caused by hitting the maxOutputTokens cap', async () => {
+    const thinking = 'I need to analyze the diff very carefully, so let me start by';
     const parts: LanguageModelV4StreamPart[] = [
+      { type: 'reasoning-start', id: 'r' },
+      { type: 'reasoning-delta', id: 'r', delta: thinking },
+      { type: 'reasoning-end', id: 'r' },
       { type: 'text-start', id: '1' },
       { type: 'text-delta', id: '1', delta: '{"summary": "this json gets cut off mid-str' },
       { type: 'text-end', id: '1' },
@@ -127,6 +157,23 @@ describe('generateStructured stream safety', () => {
 
     expect(error.message).toContain('finishReason: length');
     expect(error.message).toContain('truncated at the maxOutputTokens cap');
+    expect(error.message).toContain(`thinking (${thinking.length} chars): ${thinking}`);
     expect(error.message).toContain('raw output:');
+  });
+
+  it('shows what the model was thinking when it burned the whole budget without emitting output', async () => {
+    const thinking = 'Reading the diff... still considering the architecture...';
+    const parts: LanguageModelV4StreamPart[] = [
+      { type: 'reasoning-start', id: 'r' },
+      { type: 'reasoning-delta', id: 'r', delta: thinking },
+      { type: 'reasoning-end', id: 'r' },
+      { type: 'finish', finishReason: { unified: 'length', raw: 'length' }, usage: fakeUsage },
+    ];
+    const model = fakeStreamModel({ parts, close: true });
+
+    const error = await generateStructured(model, schema, 'p', { timeoutMs: 5000 }).catch((err: unknown) => err) as Error;
+
+    expect(error.message).toContain('finishReason: length');
+    expect(error.message).toContain(`thinking (${thinking.length} chars): ${thinking}`);
   });
 });

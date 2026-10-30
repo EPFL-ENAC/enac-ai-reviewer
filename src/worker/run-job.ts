@@ -49,8 +49,8 @@ async function trace(sql: Sql, jobId: string, type: string, payload?: unknown): 
 }
 
 function llmTraceMapper(sql: Sql, jobId: string, model: string): LlmEventListener {
-  return (event) =>
-    trace(
+  return async (event) => {
+    await trace(
       sql,
       jobId,
       event.type,
@@ -58,6 +58,16 @@ function llmTraceMapper(sql: Sql, jobId: string, model: string): LlmEventListene
         ? { model, prompt: event.prompt }
         : { model, result: event.result, inputTokens: event.inputTokens, outputTokens: event.outputTokens },
     );
+    // Model thinking gets its own trace entry so the job view can show what
+    // the model was reasoning about (the excerpt is truncated in the event).
+    if (event.type === 'llm_response' && event.reasoningText) {
+      await trace(sql, jobId, 'llm_reasoning', {
+        model,
+        reasoningChars: event.reasoningChars,
+        thinking: event.reasoningText,
+      });
+    }
+  };
 }
 
 /** Anti-spam: update our own prior comment carrying this marker instead of posting a new one every re-trigger. */
