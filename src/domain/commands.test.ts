@@ -47,6 +47,21 @@ describe('parseMentionCommand', () => {
     expect(parseMentionCommand(BOT_LOGIN, `@${BOT_LOGIN} explain`)).toEqual({ command: 'explain', args: {} });
     expect(parseMentionCommand(BOT_LOGIN, `@${BOT_LOGIN} triage`)).toEqual({ command: 'triage', args: {} });
   });
+
+  it('detects the hyphenated ci-review command', () => {
+    expect(parseMentionCommand(BOT_LOGIN, `@${BOT_LOGIN} ci-review`)).toEqual({ command: 'ci-review', args: {} });
+  });
+
+  it('tolerates punctuation variants of hyphenated commands', () => {
+    expect(parseMentionCommand(BOT_LOGIN, `@${BOT_LOGIN} cireview`)).toEqual({ command: 'ci-review', args: {} });
+    expect(parseMentionCommand(BOT_LOGIN, `@${BOT_LOGIN} ci_review`)).toEqual({ command: 'ci-review', args: {} });
+    expect(parseMentionCommand(BOT_LOGIN, `@${BOT_LOGIN} CI-Review`)).toEqual({ command: 'ci-review', args: {} });
+  });
+
+  it('parses arguments after a hyphenated command', () => {
+    const parsed = parseMentionCommand(BOT_LOGIN, `@${BOT_LOGIN} ci-review --model=Qwen/Qwen3.5-122B-A10B`);
+    expect(parsed).toEqual({ command: 'ci-review', args: { model: 'Qwen/Qwen3.5-122B-A10B' } });
+  });
 });
 
 describe('parseCommandArgs', () => {

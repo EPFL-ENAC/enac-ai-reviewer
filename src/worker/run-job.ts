@@ -19,11 +19,17 @@ import {
   updateIssueComment,
 } from '../github/publish.js';
 import { createLlmModel, type LlmCallOptions, type LlmModel } from '../llm/client.js';
+import {
+  CI_PASSED_MESSAGE,
+  formatCiReviewComment,
+  generateCiReview,
+} from '../llm/ci-review.js';
 import type { LlmEventListener } from '../llm/events.js';
 import { formatExplainComment, generateExplain } from '../llm/explain.js';
 import { generateReview, type FileFetcher, type ReviewAgentEventListener } from '../llm/review.js';
 import { formatTriageComment, generateTriage } from '../llm/triage.js';
 import { selectReviewFindings } from './select-review-findings.js';
+import { fetchCiContext } from '../github/fetch-ci.js';
 
 export interface WorkerContext {
   sql: Sql;
@@ -35,6 +41,7 @@ export interface WorkerContext {
 
 const TRIAGE_COMMENT_MARKER = '### AI triage';
 const EXPLAIN_COMMENT_MARKER = '### AI summary';
+const CI_REVIEW_COMMENT_MARKER = '### CI review';
 
 function llmCallOptions(config: WorkerConfig): LlmCallOptions {
   return {
@@ -266,6 +273,91 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
   });
 }
 
+async function runReviewCiReply(ctx: WorkerContext, job: ReviewJob, owner: string, repo: string): Promise<void> {
+  if (job.changeRequestNumber == null) throw new Error('review_ci_reply job missing changeRequestNumber');
+
+  const octokit = await getInstallationOctokitForRepo(ctx.githubApp, job.repositoryFullName);
+  const target = { owner, repo, issueNumber: job.changeRequestNumber };
+
+  let headSha = job.headSha;
+  if (!headSha) {
+    const { data: pr } = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+      owner,
+      repo,
+      pull_number: job.changeRequestNumber,
+    });
+    headSha = pr.head.sha;
+  }
+
+  const ci = await fetchCiContext(octokit, { owner, repo, ref: headSha });
+  await trace(ctx.sql, job.id, 'ci_context_fetched', {
+    state: ci.state,
+    checkRuns: ci.checkRuns.length,
+    failedLogs: ci.failedLogs.length,
+  });
+
+  if (ci.state === 'passed') {
+    await postOrUpdateMarkedComment(
+      ctx,
+      octokit,
+      target,
+      CI_REVIEW_COMMENT_MARKER,
+      `${CI_REVIEW_COMMENT_MARKER}\n\n${CI_PASSED_MESSAGE}`,
+    );
+    await trace(ctx.sql, job.id, 'github_action', {
+      action: 'post_or_update_issue_comment',
+      owner,
+      repo,
+      issueNumber: job.changeRequestNumber,
+    });
+    return;
+  }
+
+  if (ci.state === 'none') {
+    await postOrUpdateMarkedComment(
+      ctx,
+      octokit,
+      target,
+      CI_REVIEW_COMMENT_MARKER,
+      `${CI_REVIEW_COMMENT_MARKER}\n\nNo CI checks found for commit ${headSha.slice(0, 7)}: nothing to do.`,
+    );
+    return;
+  }
+
+  if (ci.state === 'pending') {
+    await postOrUpdateMarkedComment(
+      ctx,
+      octokit,
+      target,
+      CI_REVIEW_COMMENT_MARKER,
+      `${CI_REVIEW_COMMENT_MARKER}\n\nCI is still running — mention me again once it finishes.`,
+    );
+    return;
+  }
+
+  const outcome = await generateCiReview(
+    ctx.llmModel,
+    ci,
+    llmTraceMapper(ctx.sql, job.id, ctx.config.LLM_MODEL),
+    llmCallOptions(ctx.config),
+  );
+
+  await postOrUpdateMarkedComment(ctx, octokit, target, CI_REVIEW_COMMENT_MARKER, formatCiReviewComment(outcome.result));
+  await trace(ctx.sql, job.id, 'github_action', {
+    action: 'post_or_update_issue_comment',
+    owner,
+    repo,
+    issueNumber: job.changeRequestNumber,
+  });
+
+  await recordLlmUsage(ctx.sql, {
+    jobId: job.id,
+    model: ctx.config.LLM_MODEL,
+    inputTokens: outcome.inputTokens,
+    outputTokens: outcome.outputTokens,
+  });
+}
+
 export async function runJob(ctx: WorkerContext, job: ReviewJob): Promise<void> {
   const [owner, repo] = job.repositoryFullName.split('/');
   if (!owner || !repo) throw new Error(`Malformed repositoryFullName "${job.repositoryFullName}"`);
@@ -282,6 +374,9 @@ export async function runJob(ctx: WorkerContext, job: ReviewJob): Promise<void> 
     case 'change_request_review':
       ctx.logger.info({ jobId: job.id, repository: job.repositoryFullName, changeRequestNumber: job.changeRequestNumber }, 'Running change request review job');
       return runChangeRequestReview(ctx, job, owner, repo);
+    case 'review_ci_reply':
+      ctx.logger.info({ jobId: job.id, repository: job.repositoryFullName, changeRequestNumber: job.changeRequestNumber }, 'Running review CI reply job');
+      return runReviewCiReply(ctx, job, owner, repo);
     case 'review_thread_reply':
       ctx.logger.info({ jobId: job.id, repository: job.repositoryFullName, changeRequestNumber: job.changeRequestNumber }, 'Running review thread reply job');
       throw new Error(`No handler yet for job type "${job.type}"`);

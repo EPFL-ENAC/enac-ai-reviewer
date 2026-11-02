@@ -2,11 +2,13 @@ export type JobType =
   | 'issue_triage'
   | 'change_request_explain'
   | 'change_request_review'
-  | 'review_thread_reply';
+  | 'review_thread_reply'
+  | 'review_ci_reply'
+  ;
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'dead';
 
-export type TriggerCommand = 'review' | 'explain' | 'triage';
+export type TriggerCommand = 'review' | 'explain' | 'triage' | 'ci-review';
 
 export interface CommandArgs {
   effort?: 'low' | 'medium' | 'high';

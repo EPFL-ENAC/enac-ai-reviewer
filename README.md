@@ -18,7 +18,7 @@ npm run start:worker   # claim Postgres job → call LLM → post back to GitHub
 
 ## Status
 
-All v1 job types are implemented and tested: `@enac-ai-reviewer triage` (issues), `explain` and `review` (pull requests), triggered by mention, label, or assignment.
+All v1 job types are implemented and tested: `@enac-ai-reviewer triage` (issues), `explain` and `review` (pull requests), triggered by mention, label, or assignment. `@enac-ai-reviewer ci-review` (pull requests) fetches the CI checks for the head commit: if CI passed it replies "CI passed: nothing to do"; if it failed it downloads the logs of the failed GitHub Actions jobs and replies with a diagnosis (problem, root cause, suggested fix).
 
 ## Triggering from a GitHub workflow
 

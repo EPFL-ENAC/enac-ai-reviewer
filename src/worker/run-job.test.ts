@@ -13,6 +13,8 @@ const fetchFileContents = vi.fn();
 const generateTriage = vi.fn();
 const generateExplain = vi.fn();
 const generateReview = vi.fn();
+const fetchCiContext = vi.fn();
+const generateCiReview = vi.fn();
 const recordLlmUsage = vi.fn();
 const insertJobTrace = vi.fn();
 
@@ -40,6 +42,13 @@ vi.mock('../llm/explain.js', async () => {
 vi.mock('../llm/review.js', async () => {
   const actual = await vi.importActual<typeof import('../llm/review.js')>('../llm/review.js');
   return { ...actual, generateReview: (...args: unknown[]) => generateReview(...args) };
+});
+vi.mock('../github/fetch-ci.js', () => ({
+  fetchCiContext: (...args: unknown[]) => fetchCiContext(...args),
+}));
+vi.mock('../llm/ci-review.js', async () => {
+  const actual = await vi.importActual<typeof import('../llm/ci-review.js')>('../llm/ci-review.js');
+  return { ...actual, generateCiReview: (...args: unknown[]) => generateCiReview(...args) };
 });
 vi.mock('../db/jobs.js', () => ({
   recordLlmUsage: (...args: unknown[]) => recordLlmUsage(...args),
@@ -134,10 +143,90 @@ describe('runJob issue_triage', () => {
     expect(updateIssueComment).not.toHaveBeenCalled();
   });
 
-  it('throws for a job type without a handler yet', async () => {
-    await expect(runJob(ctx, job({ type: 'review_thread_reply' }))).rejects.toThrow(/no handler/i);
+describe('runJob review_ci_reply', () => {
+  const ciJob = (overrides: Partial<ReviewJob> = {}) =>
+    job({ type: 'review_ci_reply', issueNumber: null, changeRequestNumber: 7, headSha: 'abc123', ...overrides });
+
+  beforeEach(() => {
+    fetchCiContext.mockResolvedValue({ state: 'passed', checkRuns: [{ name: 'build', status: 'completed', conclusion: 'success', detailsUrl: null }], failedLogs: [] });
   });
 
+  it('posts "CI passed: nothing to do" without calling the LLM when CI passed', async () => {
+    await runJob(ctx, ciJob());
+
+    expect(fetchCiContext).toHaveBeenCalledWith({ fake: 'octokit' }, { owner: 'EPFL-ENAC', repo: 'co2-calculator', ref: 'abc123' });
+    expect(postIssueComment).toHaveBeenCalledWith(
+      { fake: 'octokit' },
+      expect.objectContaining({ body: expect.stringContaining('CI passed: nothing to do') }),
+    );
+    expect(generateCiReview).not.toHaveBeenCalled();
+    expect(recordLlmUsage).not.toHaveBeenCalled();
+  });
+
+  it('fetches the PR head SHA when the job has none (comment triggers carry no SHA)', async () => {
+    const octokit = {
+      request: vi.fn().mockResolvedValue({ data: { head: { sha: 'fedcba9' } } }),
+    };
+    getInstallationOctokitForRepo.mockResolvedValue(octokit);
+
+    await runJob(ctx, ciJob({ headSha: null }));
+
+    expect(octokit.request).toHaveBeenCalledWith(
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}',
+      expect.objectContaining({ pull_number: 7 }),
+    );
+    expect(fetchCiContext).toHaveBeenCalledWith(octokit, { owner: 'EPFL-ENAC', repo: 'co2-calculator', ref: 'fedcba9' });
+  });
+
+  it('asks the LLM to diagnose and posts the diagnosis when CI failed', async () => {
+    fetchCiContext.mockResolvedValue({
+      state: 'failed',
+      checkRuns: [{ name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null }],
+      failedLogs: [{ jobName: 'build / test', failedStep: 'npm test', log: 'Error: expected 1 to equal 2' }],
+    });
+    generateCiReview.mockResolvedValue({
+      result: { problem: 'Unit tests fail', rootCause: 'off-by-one in calculator.ts', suggestedFix: 'use <= in the loop bound' },
+      inputTokens: 400,
+      outputTokens: 100,
+    });
+
+    await runJob(ctx, ciJob());
+
+    expect(generateCiReview).toHaveBeenCalledTimes(1);
+    expect(postIssueComment).toHaveBeenCalledWith(
+      { fake: 'octokit' },
+      expect.objectContaining({
+        body: expect.stringContaining('off-by-one in calculator.ts'),
+      }),
+    );
+    expect(recordLlmUsage).toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({ jobId: 'job-1', inputTokens: 400, outputTokens: 100 }),
+    );
+  });
+
+  it('tells the user to come back later while CI is still running', async () => {
+    fetchCiContext.mockResolvedValue({ state: 'pending', checkRuns: [], failedLogs: [] });
+
+    await runJob(ctx, ciJob());
+
+    expect(postIssueComment).toHaveBeenCalledWith(
+      { fake: 'octokit' },
+      expect.objectContaining({ body: expect.stringContaining('still running') }),
+    );
+    expect(generateCiReview).not.toHaveBeenCalled();
+  });
+
+  it('throws if a review_ci_reply job is missing its change request number', async () => {
+    await expect(runJob(ctx, ciJob({ changeRequestNumber: null }))).rejects.toThrow(/changeRequestNumber/);
+  });
+});
+
+describe('runJob review_thread_reply', () => {
+  it('throws for a job type without a handler yet', async () => {
+    await expect(runJob(ctx, job({ type: 'review_thread_reply', issueNumber: null, changeRequestNumber: 7 }))).rejects.toThrow(/no handler/i);
+  });
+});
   it('throws if an issue_triage job is missing its issue number', async () => {
     await expect(runJob(ctx, job({ issueNumber: null }))).rejects.toThrow(/issueNumber/);
   });
