@@ -142,10 +142,26 @@ worker:
     # Optional LLM call guardrails (defaults applied in src/llm/client.ts).
     # The hosted models think by default and cannot disable it, so calls can
     # legitimately run for minutes; calls are streamed and these bounds keep
-    # worst cases finite.
-    # LLM_TIMEOUT_MS: "600000"
+    # worst cases finite. Set to 20 minutes (above the 10-minute code default)
+    # because large-prompt review calls legitimately stream that long.
+    LLM_TIMEOUT_MS: "1200000"
     # LLM_MAX_OUTPUT_TOKENS: "65536"
     # LLM_MAX_RETRIES: "1"
+    # Read-only team-context retrieval from the shared OpenViking memory
+    # (src/viking/). Setting VIKING_BASE_URL enables the feature; removing it
+    # disables it entirely — no OpenViking calls, and the VIKING_API_KEY
+    # Secret requirement disappears with it (the deployment only mounts the
+    # key when the base URL is present).
+    VIKING_BASE_URL: "https://enac-it-openviking.epfl.ch"
+    # Retrieval scope: the shared account resources tree (default in
+    # src/viking/retrieve.ts, repeated here for visibility). Inert without
+    # VIKING_BASE_URL.
+    VIKING_TARGET_URI: "viking://resources/EPFL-ENAC"
+    # Optional: restrict the feature to specific repositories
+    # ("owner/repo,owner/repo"). Empty/unset = every allowed repo.
+    # VIKING_REVIEW_REPOSITORIES: "EPFL-ENAC/some-internal-repo"
+    # Optional retrieval deadline; retrieval fails open past it.
+    # VIKING_TIMEOUT_MS: "5000"
 
   heartbeatFile: /tmp/worker-heartbeat
 
@@ -198,12 +214,18 @@ worker:
       githubPrivateKeyKey: GITHUB_PRIVATE_KEY
       llmApiKeyKey: LLM_API_KEY
       llmModelKey: LLM_MODEL
+      # Only required when worker.env.VIKING_BASE_URL is set (the deployment
+      # only mounts the key in that case).
+      vikingApiKeyKey: VIKING_API_KEY
 
   secrets:
     GITHUB_APP_ID: ""
     GITHUB_PRIVATE_KEY: ""
     LLM_API_KEY: ""
     LLM_MODEL: ""
+    # Chart-managed fallback: required only when worker.env.VIKING_BASE_URL
+    # is set and existingSecret.enabled=false.
+    VIKING_API_KEY: ""
 
 
 # -----------------------------------------------------------------------------
