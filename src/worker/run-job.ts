@@ -8,6 +8,7 @@ import { getInstallationOctokitForRepo, type InstallationOctokit } from '../gith
 import { parseDiffAnchors } from '../github/diff-anchors.js';
 import {
   fetchChangeRequestContext,
+  extractChangedPaths,
   fetchFileContents,
   fetchIssueContext,
 } from '../github/fetch-context.js';
@@ -30,6 +31,7 @@ import { generateReview, type FileFetcher, type ReviewAgentEventListener } from 
 import { formatTriageComment, generateTriage } from '../llm/triage.js';
 import { selectReviewFindings } from './select-review-findings.js';
 import { fetchCiContext } from '../github/fetch-ci.js';
+import { retrieveTeamContext } from '../viking/retrieve.js';
 
 export interface WorkerContext {
   sql: Sql;
@@ -195,6 +197,28 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
     diffLength: context.diff.length,
   });
 
+  // Read-only team-context retrieval from the shared OpenViking memory.
+  // Never throws: disabled/unavailable/empty all leave the review unchanged.
+  const teamContext = await retrieveTeamContext({
+    config: ctx.config,
+    repositoryFullName: job.repositoryFullName,
+    title: context.title,
+    body: context.body,
+    changedPaths: extractChangedPaths(context.fullDiff),
+  });
+  if (teamContext.status === 'ok') {
+    await trace(ctx.sql, job.id, 'team_context', {
+      query: teamContext.query,
+      hits: teamContext.hits.map((hit) => ({ uri: hit.uri, score: hit.score })),
+      chars: teamContext.section?.length ?? 0,
+    });
+  } else if (teamContext.status === 'unavailable') {
+    ctx.logger.warn({ jobId: job.id, error: teamContext.error }, 'OpenViking team context unavailable');
+    await trace(ctx.sql, job.id, 'team_context_skipped', { status: teamContext.status, reason: teamContext.error });
+  } else if (teamContext.status === 'empty') {
+    await trace(ctx.sql, job.id, 'team_context_skipped', { status: teamContext.status });
+  }
+
   const validAnchors = parseDiffAnchors(context.fullDiff);
 
   const model = job.commandArgs?.model
@@ -230,6 +254,7 @@ async function runChangeRequestReview(ctx: WorkerContext, job: ReviewJob, owner:
       effort: job.commandArgs?.effort,
       context: job.commandArgs?.context,
       prompt: job.commandArgs?.prompt,
+      teamContext: teamContext.section,
     },
     fetchFiles,
     onAgentEvent,

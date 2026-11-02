@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InstallationOctokit } from './auth.js';
-import { fetchChangeRequestContext, fetchFileContents, filterDiff, sanitizeRequestedPaths } from './fetch-context.js';
+import { extractChangedPaths, fetchChangeRequestContext, fetchFileContents, filterDiff, sanitizeRequestedPaths } from './fetch-context.js';
 
 function section(path: string, body = 'hunk content'): string {
   return `diff --git a/${path} b/${path}\nindex 111..222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,1 +1,1 @@\n-${body}\n+${body} changed\n`;
@@ -155,5 +155,40 @@ describe('fetchFileContents', () => {
       throw { status: 500 };
     });
     await expect(fetchFileContents(octokit, target, ['boom.ts'])).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe('extractChangedPaths', () => {
+  it('extracts deduplicated paths in first-appearance order', () => {
+    const diff = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      '--- a/src/a.ts',
+      '+++ b/src/a.ts',
+      '@@ -1 +1 @@',
+      '-a',
+      '+b',
+      'diff --git a/src/b.ts b/src/b.ts',
+      '--- a/src/b.ts',
+      '+++ b/src/b.ts',
+      '@@ -1 +1 @@',
+      '-c',
+      '+d',
+      'diff --git a/src/a.ts b/src/a.ts',
+      '--- a/src/a.ts',
+      '+++ b/src/a.ts',
+      '@@ -1 +1 @@',
+      '-e',
+      '+f',
+    ].join('\n');
+    expect(extractChangedPaths(diff)).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('returns an empty list for an empty diff', () => {
+    expect(extractChangedPaths('')).toEqual([]);
+  });
+
+  it('uses the a-side path for renames', () => {
+    const diff = 'diff --git a/src/old.ts b/src/new.ts\nindex 111..222 100644\n';
+    expect(extractChangedPaths(diff)).toEqual(['src/old.ts']);
   });
 });

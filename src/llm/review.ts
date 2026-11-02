@@ -48,6 +48,8 @@ export interface ReviewInput {
   effort?: 'low' | 'medium' | 'high';
   context?: string;
   prompt?: string;
+  /** Pre-formatted "Team context" bullets (from viking/retrieve.ts) with their own labeled section. */
+  teamContext?: string;
 }
 
 export interface ReviewOutcome {
@@ -141,6 +143,14 @@ Keep each finding body under 120 words — precise and actionable, no restating 
 
 Review effort: ${effort}`,
   ];
+
+  if (input.teamContext) {
+    sections.push(`Team context — retrieved from the team's shared knowledge base. These notes may be
+stale or unrelated; verify everything against the actual code before relying on it.
+Do not mention this knowledge base or its identifiers in your posted review.
+
+${input.teamContext}`);
+  }
 
   if (input.context) {
     sections.push(`Additional context:\n${input.context}`);
