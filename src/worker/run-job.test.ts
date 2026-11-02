@@ -26,11 +26,15 @@ vi.mock('../github/publish.js', () => ({
   listReviewComments: (...args: unknown[]) => listReviewComments(...args),
   createPullRequestReview: (...args: unknown[]) => createPullRequestReview(...args),
 }));
-vi.mock('../github/fetch-context.js', () => ({
-  fetchIssueContext: (...args: unknown[]) => fetchIssueContext(...args),
-  fetchChangeRequestContext: (...args: unknown[]) => fetchChangeRequestContext(...args),
-  fetchFileContents: (...args: unknown[]) => fetchFileContents(...args),
-}));
+vi.mock('../github/fetch-context.js', async () => {
+  const actual = await vi.importActual<typeof import('../github/fetch-context.js')>('../github/fetch-context.js');
+  return {
+    ...actual,
+    fetchIssueContext: (...args: unknown[]) => fetchIssueContext(...args),
+    fetchChangeRequestContext: (...args: unknown[]) => fetchChangeRequestContext(...args),
+    fetchFileContents: (...args: unknown[]) => fetchFileContents(...args),
+  };
+});
 vi.mock('../llm/triage.js', async () => {
   const actual = await vi.importActual<typeof import('../llm/triage.js')>('../llm/triage.js');
   return { ...actual, generateTriage: (...args: unknown[]) => generateTriage(...args) };
@@ -53,6 +57,10 @@ vi.mock('../llm/ci-review.js', async () => {
 vi.mock('../db/jobs.js', () => ({
   recordLlmUsage: (...args: unknown[]) => recordLlmUsage(...args),
   insertJobTrace: (...args: unknown[]) => insertJobTrace(...args),
+}));
+const retrieveTeamContext = vi.fn();
+vi.mock('../viking/retrieve.js', () => ({
+  retrieveTeamContext: (...args: unknown[]) => retrieveTeamContext(...args),
 }));
 
 const { runJob } = await import('./run-job.js');
@@ -287,6 +295,7 @@ describe('runJob change_request_review', () => {
   beforeEach(() => {
     fetchChangeRequestContext.mockResolvedValue({ title: 't', body: 'b', headSha: 'abc123', diff: DIFF, fullDiff: DIFF });
     listReviewComments.mockResolvedValue([]);
+    retrieveTeamContext.mockResolvedValue({ status: 'disabled', hits: [] });
   });
 
   it('posts one review with only findings that land on real diff anchors, above the confidence floor', async () => {
@@ -486,5 +495,79 @@ describe('runJob change_request_review', () => {
       ctx.sql,
       expect.objectContaining({ type: 'llm_reasoning' }),
     );
+  });
+
+  it('injects team context into the review and traces the injected URIs', async () => {
+    const section = '- We use plain SQL, no ORM (viking://resources/EPFL-ENAC/adr-007)';
+    retrieveTeamContext.mockResolvedValue({
+      status: 'ok',
+      section,
+      query: 't\nsrc/foo.ts',
+      hits: [{ uri: 'viking://resources/EPFL-ENAC/adr-007', abstract: 'We use plain SQL, no ORM', score: 0.81 }],
+    });
+    generateReview.mockResolvedValue({ result: { summary: 's', findings: [] }, inputTokens: 1, outputTokens: 1 });
+
+    await runJob(ctx, reviewJob());
+
+    expect(retrieveTeamContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryFullName: 'EPFL-ENAC/co2-calculator',
+        title: 't',
+        changedPaths: ['src/foo.ts'],
+      }),
+    );
+    expect(generateReview).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ teamContext: section }),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(insertJobTrace).toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({
+        jobId: 'job-1',
+        type: 'team_context',
+        payload: {
+          query: 't\nsrc/foo.ts',
+          hits: [{ uri: 'viking://resources/EPFL-ENAC/adr-007', score: 0.81 }],
+          chars: section.length,
+        },
+      }),
+    );
+  });
+
+  it('still posts the review and traces team_context_skipped when retrieval fails', async () => {
+    retrieveTeamContext.mockResolvedValue({ status: 'unavailable', hits: [], error: 'boom' });
+    generateReview.mockResolvedValue({ result: { summary: 's', findings: [] }, inputTokens: 1, outputTokens: 1 });
+
+    await runJob(ctx, reviewJob());
+
+    expect(createPullRequestReview).toHaveBeenCalled();
+    expect(insertJobTrace).toHaveBeenCalledWith(
+      ctx.sql,
+      expect.objectContaining({
+        type: 'team_context_skipped',
+        payload: { status: 'unavailable', reason: 'boom' },
+      }),
+    );
+    expect((ctx.logger as unknown as { warn: ReturnType<typeof vi.fn> }).warn).toHaveBeenCalled();
+    expect(generateReview).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ teamContext: undefined }),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('emits no team context traces when the feature is disabled', async () => {
+    retrieveTeamContext.mockResolvedValue({ status: 'disabled', hits: [] });
+    generateReview.mockResolvedValue({ result: { summary: 's', findings: [] }, inputTokens: 1, outputTokens: 1 });
+
+    await runJob(ctx, reviewJob());
+
+    expect(insertJobTrace).not.toHaveBeenCalledWith(ctx.sql, expect.objectContaining({ type: 'team_context' }));
+    expect(insertJobTrace).not.toHaveBeenCalledWith(ctx.sql, expect.objectContaining({ type: 'team_context_skipped' }));
   });
 });

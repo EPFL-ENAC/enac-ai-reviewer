@@ -379,3 +379,35 @@ describe('generateReview agent loop', () => {
     expect(() => ReviewResultSchema.parse({ summary: 's' })).toThrow();
   });
 });
+
+describe('generateReview team context', () => {
+  it('renders the team context section with its disclaimer when provided', async () => {
+    const { prompt } = await generateReview(fakeModel([{ summary: 's', findings: [] }]), {
+      ...baseInput,
+      teamContext: '- We use plain SQL, no ORM (viking://resources/EPFL-ENAC/adr-007)',
+    });
+
+    expect(prompt).toContain('Team context — retrieved from the team');
+    expect(prompt).toContain('verify everything against the actual code');
+    expect(prompt).toContain('Do not mention this knowledge base or its identifiers');
+    expect(prompt).toContain('- We use plain SQL, no ORM (viking://resources/EPFL-ENAC/adr-007)');
+  });
+
+  it('places team context before the user-supplied additional context', async () => {
+    const { prompt } = await generateReview(fakeModel([{ summary: 's', findings: [] }]), {
+      ...baseInput,
+      teamContext: '- team note (viking://resources/x)',
+      context: 'this is a backend API change',
+      prompt: 'focus on security',
+    });
+
+    expect(prompt.indexOf('Team context — retrieved')).toBeLessThan(prompt.indexOf('Additional context:'));
+    expect(prompt.indexOf('Additional context:')).toBeLessThan(prompt.indexOf('Additional instructions:'));
+  });
+
+  it('omits the team context section when absent (byte-identical prompt to before)', async () => {
+    const { prompt } = await generateReview(fakeModel([{ summary: 's', findings: [] }]), baseInput);
+
+    expect(prompt).not.toContain('Team context');
+  });
+});

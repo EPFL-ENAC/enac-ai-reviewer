@@ -49,6 +49,16 @@ export function filterDiff(diff: string): string {
     .join('');
 }
 
+/** Extracts deduplicated changed file paths from a unified diff, in first-appearance order. */
+export function extractChangedPaths(diff: string): string[] {
+  const paths: string[] = [];
+  for (const section of diff.split(/(?=^diff --git )/m)) {
+    const path = /^diff --git a\/(.+?) b\//m.exec(section)?.[1];
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  return paths;
+}
+
 export async function fetchChangeRequestContext(
   octokit: InstallationOctokit,
   target: { owner: string; repo: string; number: number },

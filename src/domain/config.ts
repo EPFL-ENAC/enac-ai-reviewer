@@ -53,25 +53,38 @@ const webSchema = z
     },
   );
 
-const workerSchema = z.object({
-  DATABASE_URL: z.string().min(1),
-  GITHUB_APP_ID: z.string().min(1),
-  GITHUB_PRIVATE_KEY: z.string().min(1),
-  GITHUB_BOT_LOGIN: z.string().min(1),
-  LLM_BASE_URL: z.string().url(),
-  LLM_API_KEY: z.string().min(1),
-  LLM_MODEL: z.string().min(1),
-  // Optional guardrails for LLM calls (sane defaults applied in llm/client.ts).
-  LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
-  LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().optional(),
-  LLM_MAX_RETRIES: z.coerce.number().int().nonnegative().optional(),
-});
+const workerSchema = z
+  .object({
+    DATABASE_URL: z.string().min(1),
+    GITHUB_APP_ID: z.string().min(1),
+    GITHUB_PRIVATE_KEY: z.string().min(1),
+    GITHUB_BOT_LOGIN: z.string().min(1),
+    LLM_BASE_URL: z.string().url(),
+    LLM_API_KEY: z.string().min(1),
+    LLM_MODEL: z.string().min(1),
+    // Optional guardrails for LLM calls (sane defaults applied in llm/client.ts).
+    LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+    LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().optional(),
+    LLM_MAX_RETRIES: z.coerce.number().int().nonnegative().optional(),
+    // Optional read-only team-context retrieval from OpenViking (viking/retrieve.ts).
+    // The feature is dormant unless VIKING_BASE_URL is set; retrieval fails open.
+    VIKING_BASE_URL: z.string().url().optional(),
+    VIKING_API_KEY: z.string().min(1).optional(),
+    VIKING_TARGET_URI: z.string().min(1).optional(),
+    VIKING_REVIEW_REPOSITORIES: z.string().optional(),
+    VIKING_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  })
+  .refine((data) => !data.VIKING_BASE_URL || Boolean(data.VIKING_API_KEY), {
+    message: 'VIKING_API_KEY is required when VIKING_BASE_URL is set',
+  });
 
 export type WebConfig = z.infer<typeof webSchema> & {
   allowedOrganizations: string[];
   adminAuthUsers: string[];
 };
-export type WorkerConfig = z.infer<typeof workerSchema>;
+export type WorkerConfig = z.infer<typeof workerSchema> & {
+  vikingReviewRepositories: string[];
+};
 
 function splitAllowlist(raw: string): string[] {
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
@@ -87,5 +100,9 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  return workerSchema.parse(env);
+  const parsed = workerSchema.parse(env);
+  return {
+    ...parsed,
+    vikingReviewRepositories: splitAllowlist(parsed.VIKING_REVIEW_REPOSITORIES ?? ''),
+  };
 }

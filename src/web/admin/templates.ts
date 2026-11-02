@@ -378,5 +378,27 @@ function formatTracePayload(type: string, payload: unknown, traceKey: string): s
         : '';
     return `<div class="admin-files">${rows}${totals}</div>`;
   }
+  if (type === 'team_context' && typeof payload === 'object' && payload !== null) {
+    const { query, hits, chars } = payload as { query?: unknown; hits?: unknown; chars?: unknown };
+    const queryHtml = typeof query === 'string' && query ? `<div class="admin-file-reason">query: ${escapeHtml(query)}</div>` : '';
+    const rows = Array.isArray(hits)
+      ? hits
+          .map((hit) => {
+            const entry = hit as { uri?: unknown; score?: unknown };
+            const score = typeof entry.score === 'number' ? entry.score.toFixed(2) : 'unknown';
+            return `<div class="admin-file-row"><code class="admin-file-chip">${escapeHtml(String(entry.uri ?? '?'))}</code><span class="admin-file-status admin-file-status--fetched">${escapeHtml(score)}</span></div>`;
+          })
+          .join('')
+      : '';
+    if (!rows) {
+      return renderTracePre(JSON.stringify(payload, null, 2), traceKey);
+    }
+    const hitCount = Array.isArray(hits) ? hits.length : 0;
+    const total =
+      typeof chars === 'number'
+        ? `<div class="admin-file-total">${hitCount} hit${hitCount === 1 ? '' : 's'} · ${chars.toLocaleString('en-US')} chars</div>`
+        : '';
+    return `<div class="admin-files">${queryHtml}${rows}${total}</div>`;
+  }
   return renderTracePre(JSON.stringify(payload, null, 2), traceKey);
 }

@@ -80,6 +80,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "enac-ai-reviewer.workerSecretName" . }}
                   key: {{ .Values.worker.existingSecret.keys.llmModelKey | default "LLM_MODEL" }}
+            {{- if .Values.worker.env.VIKING_BASE_URL }}
+            # OpenViking team-context retrieval (src/viking/). The key is only
+            # mounted when the feature is enabled (VIKING_BASE_URL set), so
+            # deployments without OpenViking boot fine without the Secret key.
+            - name: VIKING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.workerSecretName" . }}
+                  key: {{ .Values.worker.existingSecret.keys.vikingApiKeyKey | default "VIKING_API_KEY" }}
+            {{- end }}
           # Heartbeat-file exec probes: the worker loop touches this file every
           # poll tick, so a stale/missing file proves the loop itself is stuck
           # (wedged DB connection, hung event loop) — not just that the

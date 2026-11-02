@@ -400,6 +400,31 @@ describe('Admin UI job detail', () => {
     expect(res.payload).toContain('+1,234 chars');
   });
 
+  it('renders team context traces with hit chips and scores', async () => {
+    const created = await enqueueJob(sql, baseJob());
+    await insertJobTrace(sql, {
+      jobId: created!.id,
+      type: 'team_context',
+      payload: {
+        query: 'widget conventions',
+        hits: [{ uri: 'viking://resources/EPFL-ENAC/adr-007', score: 0.8123 }],
+        chars: 55,
+      },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/jobs/${created!.id}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain('admin-file-chip');
+    expect(res.payload).toContain('viking://resources/EPFL-ENAC/adr-007');
+    expect(res.payload).toContain('0.81');
+    expect(res.payload).toContain('1 hit');
+    expect(res.payload).toContain('query: widget conventions');
+  });
+
   it('renders model thinking traces with a char count and collapses long ones', async () => {
     const created = await enqueueJob(sql, baseJob());
     await insertJobTrace(sql, {
