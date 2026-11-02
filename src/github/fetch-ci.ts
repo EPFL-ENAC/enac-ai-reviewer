@@ -26,7 +26,7 @@ const MAX_JOBS_PER_RUN = 20;
 const MAX_LOG_CHARS = 30000;
 const MAX_LOGS = 5;
 
-const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']);
+const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure', 'action_required', 'error']);
 
 function truncateTail(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -69,7 +69,7 @@ export async function fetchCiContext(
   if (allChecks.length === 0) return { state: 'none', checkRuns: [], failedLogs: [] };
 
   const failed = allChecks.filter((c) => c.conclusion !== null && FAILED_CONCLUSIONS.has(c.conclusion));
-  const running = allChecks.filter((c) => c.status === 'in_progress' || c.status === 'queued');
+  const running = allChecks.filter((c) => c.status !== 'completed');
 
   let state: CiState;
   if (failed.length > 0) state = 'failed';
