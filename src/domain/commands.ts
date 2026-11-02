@@ -1,6 +1,6 @@
 import type { CommandArgs, JobType, TriggerCommand } from './types.js';
 
-const COMMANDS: readonly TriggerCommand[] = ['review', 'explain', 'triage'];
+const COMMANDS: readonly TriggerCommand[] = ['review', 'explain', 'triage', 'ci-review'];
 
 export type EventContext = 'issue' | 'change_request';
 
@@ -15,6 +15,7 @@ export function resolveJobType(command: TriggerCommand, context: EventContext): 
   if (command === 'triage' && context === 'issue') return 'issue_triage';
   if (command === 'explain' && context === 'change_request') return 'change_request_explain';
   if (command === 'review' && context === 'change_request') return 'change_request_review';
+  if (command === 'ci-review' && context === 'change_request') return 'review_ci_reply';
   return null;
 }
 
@@ -51,11 +52,14 @@ export function parseMentionCommand(botLogin: string, body: string): ParsedMenti
   if (idx === -1) return null;
 
   const rest = body.slice(idx + mention.length).trim();
-  const word = rest.split(/\s+/, 1)[0]!.toLowerCase().replace(/[^a-z]/g, '');
-  const command = COMMANDS.find((c) => c === word);
+  const firstWord = rest.split(/\s+/, 1)[0]!.toLowerCase();
+  // Compare with punctuation (hyphens, underscores, …) stripped on both sides so
+  // "ci-review", "cireview" and "ci_review" all resolve to the same command.
+  const letters = (s: string) => s.replace(/[^a-z]/g, '');
+  const command = COMMANDS.find((c) => letters(c) === letters(firstWord));
   if (!command) return null;
 
-  const argSection = rest.slice(word.length).trim();
+  const argSection = rest.slice(firstWord.length).trim();
   return { command, args: parseCommandArgs(argSection) };
 }
 
