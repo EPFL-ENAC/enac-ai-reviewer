@@ -110,6 +110,22 @@ spec:
                   key: {{ .Values.web.existingSecret.keys.sessionSaltKey | default "SESSION_SALT" }}
                   optional: true
             {{- end }}
+            {{- if .Values.web.env.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            {{- if or .Values.web.existingSecret.enabled .Values.web.secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+            # OTLP auth headers (e.g. "Authorization=Basic <base64 of user:password>"),
+            # read by both the trace and metric exporters. Mounted only when
+            # telemetry is enabled so deployments without a collector need no
+            # Secret key. Optional: a missing key means unauthenticated exports
+            # (useful for auth-less endpoints) — telemetry must never block the
+            # app itself.
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enac-ai-reviewer.webSecretName" . }}
+                  key: {{ .Values.web.existingSecret.keys.otelHeadersKey | default "OTEL_EXPORTER_OTLP_HEADERS" }}
+                  optional: true
+            {{- end }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.web.livenessProbe | nindent 12 }}
           readinessProbe:

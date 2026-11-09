@@ -50,7 +50,7 @@ web:
     # only starts when the endpoint is set, so a deployment without a collector
     # stays quiet. Point this at the in-cluster OTLP HTTP receiver.
     OTEL_SERVICE_NAME: "enac-ai-reviewer-web"
-    #OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc:4318"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://enac-it-otel.epfl.ch:4318"
 
   podAnnotations: {}
   podSecurityContext:
@@ -122,6 +122,10 @@ web:
       keycloakClientSecretKey: KEYCLOAK_CLIENT_SECRET
       sessionSecretKey: SESSION_SECRET
       sessionSaltKey: SESSION_SALT
+      # Only mounted when web.env.OTEL_EXPORTER_OTLP_ENDPOINT is set. May be
+      # empty or absent for OTLP endpoints that do not require authentication
+      # (the mount is optional).
+      otelHeadersKey: OTEL_EXPORTER_OTLP_HEADERS
 
   # Chart-managed fallback when existingSecret.enabled=false (e.g. local/dev).
   secrets:
@@ -134,6 +138,9 @@ web:
     KEYCLOAK_CLIENT_SECRET: ""
     SESSION_SECRET: ""
     SESSION_SALT: ""
+    # OTLP auth headers (see otelHeadersKey above). Only emitted/mounted when
+    # web.env.OTEL_EXPORTER_OTLP_ENDPOINT is set and a value is provided.
+    OTEL_EXPORTER_OTLP_HEADERS: ""
 
 worker:
   enabled: true
@@ -227,6 +234,10 @@ worker:
       # Only required when worker.env.VIKING_BASE_URL is set (the deployment
       # only mounts the key in that case).
       vikingApiKeyKey: VIKING_API_KEY
+      # Only mounted when worker.env.OTEL_EXPORTER_OTLP_ENDPOINT is set. May be
+      # empty or absent for OTLP endpoints that do not require authentication
+      # (the mount is optional).
+      otelHeadersKey: OTEL_EXPORTER_OTLP_HEADERS
 
   secrets:
     GITHUB_APP_ID: ""
@@ -236,6 +247,9 @@ worker:
     # Chart-managed fallback: required only when worker.env.VIKING_BASE_URL
     # is set and existingSecret.enabled=false.
     VIKING_API_KEY: ""
+    # OTLP auth headers (see otelHeadersKey above). Only emitted/mounted when
+    # worker.env.OTEL_EXPORTER_OTLP_ENDPOINT is set and a value is provided.
+    OTEL_EXPORTER_OTLP_HEADERS: ""
 
 
 # -----------------------------------------------------------------------------
