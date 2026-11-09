@@ -68,8 +68,8 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
     ...settings,
     experimental_telemetry: {
       isEnabled: true,
-      recordInputs: false,
-      recordOutputs: false,
+      recordInputs: true,
+      recordOutputs: true,
     }
   });
 
