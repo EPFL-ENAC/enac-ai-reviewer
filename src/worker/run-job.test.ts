@@ -85,6 +85,7 @@ function job(overrides: Partial<ReviewJob> = {}): ReviewJob {
     startedAt: new Date(),
     finishedAt: null,
     errorMessage: null,
+    traceparent: null,
     ...overrides,
   };
 }

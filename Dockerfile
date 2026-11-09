@@ -22,5 +22,5 @@ COPY --from=build /app/src/db/migrations ./src/db/migrations
 RUN chown -R node:node /app
 USER node
 
-ENTRYPOINT ["node", "dist/entrypoint.js"]
+ENTRYPOINT ["node", "--import", "./dist/otel.js", "dist/entrypoint.js"]
 CMD ["web"]

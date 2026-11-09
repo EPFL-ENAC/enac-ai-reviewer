@@ -1,4 +1,5 @@
 import type { App } from '@octokit/app';
+import { context, propagation } from '@opentelemetry/api';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { enqueueJob, insertDelivery } from '../db/jobs.js';
 import type { Sql } from '../db/pool.js';
@@ -132,6 +133,13 @@ export function registerGithubWebhook(
       triggerActor: trigger.triggerActor,
       dedupeKey: trigger.dedupeKey,
       payload: trigger.payload,
+      // The worker continues this trace when it claims the job, so the webhook
+      // request, the job, and the LLM calls form one trace (src/worker/worker.ts).
+      traceparent: (() => {
+        const carrier: Record<string, string> = {};
+        propagation.inject(context.active(), carrier);
+        return carrier.traceparent ?? null;
+      })(),
     });
 
     if (job) {

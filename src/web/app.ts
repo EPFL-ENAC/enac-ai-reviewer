@@ -2,6 +2,7 @@ import type { App } from '@octokit/app';
 import Fastify, { type FastifyInstance } from 'fastify';
 import secureSession from '@fastify/secure-session';
 import { createHash } from 'crypto';
+import { otelTraceMixin } from '../otel.js';
 import { registerAdminUi } from './admin/routes.js';
 import type { Sql } from '../db/pool.js';
 import type { WebConfig } from '../domain/config.js';
@@ -26,7 +27,7 @@ export async function buildApp(
   githubApp: App,
   injectedKeycloakAuth?: KeycloakAuth | null,
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY });
+  const app = Fastify({ logger: { mixin: otelTraceMixin }, trustProxy: config.TRUST_PROXY });
 
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, rawBody, done) => {
     const buf = rawBody as Buffer;
