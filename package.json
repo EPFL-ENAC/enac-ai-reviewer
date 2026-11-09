@@ -13,7 +13,7 @@
     "start:worker": "node --env-file=.env --import ./dist/otel.js dist/worker/worker.js",
     "dev:web": "tsx --env-file=.env --import ./src/otel.ts src/web/server.ts",
     "dev:worker": "tsx --env-file=.env --import ./src/otel.ts src/worker/worker.ts",
-    "migrate": "node --env-file=.env node_modules/.bin/node-pg-migrate -m src/db/migrations -j sql up",
+    "migrate": "node-pg-migrate -m src/db/migrations -j sql",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
