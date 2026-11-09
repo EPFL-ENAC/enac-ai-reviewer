@@ -9,6 +9,7 @@ import { createGithubApp, getInstallationOctokitForRepo } from '../github/auth.j
 import { isPermanentGithubError } from '../github/classify-error.js';
 import { createLlmModel } from '../llm/client.js';
 import { runJob } from './run-job.js';
+import { shutdownOtel } from '../otel.js';
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_JITTER_MS = 500;
@@ -147,6 +148,7 @@ async function loop(): Promise<void> {
 async function shutdown(reason: string): Promise<void> {
   logger.info('shutting down worker: %s', reason);
   shuttingDown = true;
+  await shutdownOtel();
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
   }

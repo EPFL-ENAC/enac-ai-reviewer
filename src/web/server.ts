@@ -1,6 +1,7 @@
 import { createPool } from '../db/pool.js';
 import { loadWebConfig } from '../domain/config.js';
 import { createGithubApp } from '../github/auth.js';
+import { shutdownOtel } from '../otel.js';
 import { buildApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -12,6 +13,7 @@ async function main(): Promise<void> {
   await app.listen({ host: '0.0.0.0', port: config.PORT });
 
   async function shutdown(): Promise<void> {
+    await shutdownOtel();
     await app.close();
     await sql.end();
     process.exit(0);
