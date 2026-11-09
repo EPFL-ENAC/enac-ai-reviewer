@@ -66,11 +66,16 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
     prompt,
     output: Output.object({ schema }),
     ...settings,
-    experimental_telemetry: {
+    // Full-fidelity LLM tracing (deliberate choice, 2026-11): prompts contain
+    // repo source code and outputs can be large — both are exported as span
+    // attributes to the internal OTel backend. The same prompt text is also
+    // persisted in the job traces, so the backend duplicates that content.
+    telemetry: {
       isEnabled: true,
       recordInputs: true,
       recordOutputs: true,
-    }
+      functionId: 'llm.generateStructured',
+    },
   });
 
   // streamText feeds its promises from an internal stream: it must be actively
