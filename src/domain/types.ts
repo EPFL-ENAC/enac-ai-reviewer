@@ -36,6 +36,8 @@ export interface ReviewJob {
   startedAt: Date | null;
   finishedAt: Date | null;
   errorMessage: string | null;
+  /** W3C traceparent of the request that enqueued the job (see src/otel.ts). */
+  traceparent: string | null;
 }
 
 export interface NewReviewJob {
@@ -49,4 +51,5 @@ export interface NewReviewJob {
   triggerActor: string;
   dedupeKey: string;
   payload: unknown;
+  traceparent?: string | null;
 }

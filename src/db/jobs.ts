@@ -20,6 +20,7 @@ interface ReviewJobRow {
   started_at: Date | null;
   finished_at: Date | null;
   error_message: string | null;
+  traceparent: string | null;
 }
 
 function toReviewJob(row: ReviewJobRow): ReviewJob {
@@ -42,6 +43,7 @@ function toReviewJob(row: ReviewJobRow): ReviewJob {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     errorMessage: row.error_message,
+    traceparent: row.traceparent,
   };
 }
 
@@ -68,10 +70,10 @@ export async function enqueueJob(sql: Sql, job: NewReviewJob): Promise<ReviewJob
   const rows = await sql<ReviewJobRow[]>`
     insert into review_jobs (
       provider, type, status, repository_full_name, issue_number,
-      change_request_number, head_sha, command_args, trigger_actor, dedupe_key, payload
+      change_request_number, head_sha, command_args, trigger_actor, dedupe_key, payload, traceparent
     ) values (
       ${job.provider}, ${job.type}, 'queued', ${job.repositoryFullName}, ${job.issueNumber ?? null},
-      ${job.changeRequestNumber ?? null}, ${job.headSha ?? null}, ${job.commandArgs ? sql.json(job.commandArgs as import('postgres').JSONValue) : null}, ${job.triggerActor}, ${job.dedupeKey}, ${JSON.stringify(job.payload)}::jsonb
+      ${job.changeRequestNumber ?? null}, ${job.headSha ?? null}, ${job.commandArgs ? sql.json(job.commandArgs as import('postgres').JSONValue) : null}, ${job.triggerActor}, ${job.dedupeKey}, ${JSON.stringify(job.payload)}::jsonb, ${job.traceparent ?? null}
     )
     on conflict (dedupe_key) do nothing
     returning *

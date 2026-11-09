@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { context, metrics, propagation, SpanStatusCode, trace } from '@opentelemetry/api';
 import pino from 'pino';
 import { claimJob, completeJob, failJob, insertJobTrace, killJob, requeueStaleRunningJobs } from '../db/jobs.js';
 import { createPool } from '../db/pool.js';
@@ -9,6 +10,7 @@ import { createGithubApp, getInstallationOctokitForRepo } from '../github/auth.j
 import { isPermanentGithubError } from '../github/classify-error.js';
 import { createLlmModel } from '../llm/client.js';
 import { runJob } from './run-job.js';
+import { otelTraceMixin, shutdownOtel } from '../otel.js';
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_JITTER_MS = 500;
@@ -21,7 +23,18 @@ const config = loadWorkerConfig();
 const sql = createPool(config.DATABASE_URL);
 const githubApp = createGithubApp(config.GITHUB_APP_ID, config.GITHUB_PRIVATE_KEY);
 const llmModel = createLlmModel(config.LLM_BASE_URL, config.LLM_API_KEY, config.LLM_MODEL);
-const logger = pino();
+const logger = pino({ mixin: otelTraceMixin });
+
+// Spans and metrics are no-ops when the OTel SDK is disabled (no endpoint set).
+const tracer = trace.getTracer('enac-ai-reviewer-worker');
+const meter = metrics.getMeter('enac-ai-reviewer-worker');
+const jobCounter = meter.createCounter('enac_reviewer.jobs', {
+  description: 'Review jobs processed, by outcome.',
+});
+const jobDurationHistogram = meter.createHistogram('enac_reviewer.job.duration', {
+  unit: 'ms',
+  description: 'Wall-clock duration from claim to completion/failure.',
+});
 
 let shuttingDown = false;
 let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
@@ -98,39 +111,69 @@ async function tick(): Promise<void> {
   const jobContext = { jobId: job.id, jobType: job.type, repositoryFullName: job.repositoryFullName };
   logger.info({ ...jobContext, attempts: job.attempts }, 'claimed job');
 
-  try {
-    await runJob({ sql, githubApp, config, logger, llmModel }, job);
-    await completeJob(sql, job.id);
-    await insertJobTrace(sql, { jobId: job.id, type: 'job_completed' });
-    logger.info({ ...jobContext, durationMs: Date.now() - startedAt }, 'job completed');
-    if (job.attempts > 1) await updateAcknowledgment(job, '+1');
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const permanent = isPermanentGithubError(err);
-    const failureContext = {
-      ...jobContext,
-      attempts: job.attempts,
-      durationMs: Date.now() - startedAt,
-      message,
-      permanent,
-      err: serializeError(err),
-    };
+  // Continue the trace started by the webhook request that enqueued this job:
+  // the web process stored its W3C traceparent on the row (see github-webhook).
+  const parentContext = job.traceparent
+    ? propagation.extract(context.active(), { traceparent: job.traceparent })
+    : context.active();
 
-    logger[permanent ? 'error' : 'warn'](failureContext, 'job failed');
+  await tracer.startActiveSpan(
+    'job.run',
+    {
+      attributes: {
+        'enac.job.id': job.id,
+        'enac.job.type': job.type,
+        'enac.job.repository': job.repositoryFullName,
+        'enac.job.attempts': job.attempts,
+      },
+    },
+    parentContext,
+    async (span) => {
+      try {
+        try {
+          await runJob({ sql, githubApp, config, logger, llmModel }, job);
+          await completeJob(sql, job.id);
+          await insertJobTrace(sql, { jobId: job.id, type: 'job_completed' });
+          logger.info({ ...jobContext, durationMs: Date.now() - startedAt }, 'job completed');
+          jobCounter.add(1, { 'job.type': job.type, outcome: 'completed' });
+          if (job.attempts > 1) await updateAcknowledgment(job, '+1');
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const permanent = isPermanentGithubError(err);
+          const failureContext = {
+            ...jobContext,
+            attempts: job.attempts,
+            durationMs: Date.now() - startedAt,
+            message,
+            permanent,
+            err: serializeError(err),
+          };
 
-    try {
-      await insertJobTrace(sql, { jobId: job.id, type: 'job_failed', payload: { message, permanent } });
-    } catch (traceErr) {
-      logger.error({ jobId: job.id, err: serializeError(traceErr) }, 'failed to record job_failed trace');
-    }
+          logger[permanent ? 'error' : 'warn'](failureContext, 'job failed');
 
-    if (permanent) {
-      await killJob(sql, job.id, message);
-    } else {
-      await failJob(sql, job.id, message);
-    }
-    await updateAcknowledgment(job, '-1');
-  }
+          try {
+            await insertJobTrace(sql, { jobId: job.id, type: 'job_failed', payload: { message, permanent } });
+          } catch (traceErr) {
+            logger.error({ jobId: job.id, err: serializeError(traceErr) }, 'failed to record job_failed trace');
+          }
+
+          if (permanent) {
+            await killJob(sql, job.id, message);
+          } else {
+            await failJob(sql, job.id, message);
+          }
+          await updateAcknowledgment(job, '-1');
+
+          span.setStatus({ code: SpanStatusCode.ERROR, message });
+          span.recordException(err instanceof Error ? err : String(err));
+          jobCounter.add(1, { 'job.type': job.type, outcome: permanent ? 'killed' : 'failed' });
+        }
+      } finally {
+        jobDurationHistogram.record(Date.now() - startedAt, { 'job.type': job.type });
+        span.end();
+      }
+    },
+  );
 }
 
 async function loop(): Promise<void> {
@@ -147,6 +190,7 @@ async function loop(): Promise<void> {
 async function shutdown(reason: string): Promise<void> {
   logger.info('shutting down worker: %s', reason);
   shuttingDown = true;
+  await shutdownOtel();
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
   }

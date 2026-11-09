@@ -66,6 +66,11 @@ export async function generateStructured<SchemaT extends z.ZodTypeAny>(
     prompt,
     output: Output.object({ schema }),
     ...settings,
+    experimental_telemetry: {
+      isEnabled: true,
+      recordInputs: true,
+      recordOutputs: true,
+    }
   });
 
   // streamText feeds its promises from an internal stream: it must be actively
