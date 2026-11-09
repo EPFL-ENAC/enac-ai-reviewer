@@ -48,9 +48,11 @@ web:
     TRUST_PROXY: "true"
     # OpenTelemetry: request spans exported over OTLP (src/otel.ts). The SDK
     # only starts when the endpoint is set, so a deployment without a collector
-    # stays quiet. Point this at the in-cluster OTLP HTTP receiver.
+    # stays quiet. The OTLP HTTP paths (/v1/traces, /v1/metrics) are appended
+    # automatically; auth headers come from the OTEL_EXPORTER_OTLP_HEADERS
+    # Secret key (see web.existingSecret.keys.otelHeadersKey).
     OTEL_SERVICE_NAME: "enac-ai-reviewer-web"
-    OTEL_EXPORTER_OTLP_ENDPOINT: "http://enac-it-otel.epfl.ch:4318"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://enac-it-otel.epfl.ch"
 
   podAnnotations: {}
   podSecurityContext:
@@ -178,7 +180,7 @@ worker:
     # endpoint (PRD §5), so OTLP push is the only metrics channel it can use
     # (src/otel.ts). The SDK only starts when the endpoint is set.
     OTEL_SERVICE_NAME: "enac-ai-reviewer-worker"
-    #OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc:4318"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://enac-it-otel.epfl.ch"
 
   heartbeatFile: /tmp/worker-heartbeat
 

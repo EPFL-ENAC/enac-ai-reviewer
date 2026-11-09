@@ -1,9 +1,17 @@
-import { context, trace } from '@opentelemetry/api';
+import { context, diag, DiagConsoleLogger, DiagLogLevel, trace } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+
+// OTLP exporters report failures through the diag logger, which is a silent
+// no-op unless one is registered — without this, a misconfigured endpoint
+// (unreachable, 401, …) fails invisibly. OTEL_LOG_LEVEL tunes the verbosity
+// (e.g. "debug" when debugging exports, see the DiagLogLevel docs).
+diag.setLogger(new DiagConsoleLogger(), {
+  logLevel: DiagLogLevel[(process.env.OTEL_LOG_LEVEL ?? 'WARN') as keyof typeof DiagLogLevel] ?? DiagLogLevel.WARN,
+});
 
 // The SDK only starts when an OTLP endpoint is configured (and not explicitly
 // disabled): the exporters otherwise retry against their localhost default
