@@ -1,7 +1,9 @@
+import { OpenTelemetry } from '@ai-sdk/otel';
 import { context, diag, DiagConsoleLogger, DiagLogLevel, trace } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { registerTelemetry } from 'ai';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 
@@ -40,6 +42,12 @@ const sdk = enabled
     })
   : null;
 sdk?.start();
+
+// Route AI SDK lifecycle events into the same OTel pipeline: every LLM call
+// gets spans (with prompt/output content — see src/llm/client.ts), which in
+// particular gives per-call error spans when a generation fails. No-op when
+// the SDK is disabled (no OTel pipeline to send to).
+if (enabled) registerTelemetry(new OpenTelemetry());
 
 export async function shutdownOtel(): Promise<void> {
   await sdk?.shutdown().catch(() => {}); // flush pending spans
