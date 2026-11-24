@@ -24,10 +24,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: EPFL-ENAC/epfl-enac-build-push-deploy-action/.github/workflows/deploy.yml@v3.0.7
+    uses: EPFL-ENAC/epfl-enac-build-push-deploy-action/.github/workflows/deploy.yml@v4.2.0
     secrets:
       token: ${{ secrets.CD_TOKEN }}
     with:
+      skip_vulnerability_scan: false
       # Also the top-level folder name this dispatches to in
       # EPFL-ENAC/enack8s-app-config (confirmed against that repo's real
       # layout: co2-calculator's ORG "epfl" -> folder epfl/co2-calculator).
